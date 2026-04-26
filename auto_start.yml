@@ -7,31 +7,31 @@ windows:
         - pane1:
           - docker start -ai dadc0c9de905
           - source install/setup.bash
-          - sleep 3 && ros2 launch ros2_yolos_cpp detector2.launch.py model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_2/image
+          - sleep 3 && ros2 launch ros2_yolos_cpp detector2.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_2/image
         - pane2:
           - sleep 2 && docker exec -it dadc0c9de905 /bin/bash
           - source install/setup.bash
-          - ros2 launch ros2_yolos_cpp detector3.launch.py model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_3/image
+          - ros2 launch ros2_yolos_cpp detector3.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_3/image
         - pane3:
           - sleep 2 && docker exec -it dadc0c9de905 /bin/bash
           - source install/setup.bash
-          - ros2 launch ros2_yolos_cpp detector4.launch.py model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_4/image
+          - ros2 launch ros2_yolos_cpp detector4.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_4/image
         - pane4:
           - sleep 2 && docker exec -it dadc0c9de905 /bin/bash
           - source install/setup.bash
-          - ros2 launch ros2_yolos_cpp detector5.launch.py model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_5/image
+          - ros2 launch ros2_yolos_cpp detector5.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_5/image
         - pane5:
           - sleep 2 && docker exec -it dadc0c9de905 /bin/bash
           - source install/setup.bash
-          - ros2 launch ros2_yolos_cpp detector6.launch.py model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_6/image
+          - ros2 launch ros2_yolos_cpp detector6.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_6/image
         - pane6:
           - sleep 2 && docker exec -it dadc0c9de905 /bin/bash
           - source install/setup.bash
-          - ros2 launch ros2_yolos_cpp detector7.launch.py model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_7/image
+          - ros2 launch ros2_yolos_cpp detector7.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_7/image
         - pane7:
           - sleep 2 && docker exec -it dadc0c9de905 /bin/bash
           - source install/setup.bash
-          - sleep 10
+          - sleep 20
           - ros2 lifecycle set /yolos_detector2 configure
           - sleep 4 && ros2 lifecycle set /yolos_detector3 configure
           - sleep 4 && ros2 lifecycle set /yolos_detector4 configure
