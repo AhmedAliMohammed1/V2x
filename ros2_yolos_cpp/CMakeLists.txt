@@ -13,6 +13,9 @@ project(ros2_yolos_cpp VERSION 1.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(ONNXRUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime")
+set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_DIR}/include")
+set(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_DIR}/lib")
 
 # Default to Release build if not specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -70,9 +73,10 @@ if(ONNXRUNTIME_LIB)
       /opt/onnxruntime/include
       $ENV{ONNXRUNTIME_DIR}/include
   )
-  if(NOT ONNXRUNTIME_INCLUDE_DIR)
-    message(FATAL_ERROR "ONNX Runtime headers not found")
-  endif()
+  
+if(NOT EXISTS "${ONNXRUNTIME_INCLUDE_DIR}/onnxruntime_cxx_api.h")
+  message(FATAL_ERROR "ONNX Runtime headers not found")
+endif()
 else()
   # Download ONNX Runtime manually (CMake 3.22 compatible)
   set(ONNXRUNTIME_VERSION "1.20.1")

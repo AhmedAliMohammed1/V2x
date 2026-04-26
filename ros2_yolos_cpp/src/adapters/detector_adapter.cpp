@@ -1,6 +1,6 @@
 // Copyright 2024 YOLOs-CPP Team
 // SPDX-License-Identifier: AGPL-3.0
-
+#include <algorithm>
 #include "ros2_yolos_cpp/adapters/detector_adapter.hpp"
 
 // YOLOs-CPP includes - ONLY in implementation file
@@ -106,22 +106,39 @@ std::vector<DetectionResult> DetectorAdapter::detect(
 
     // Convert to our adapter result type
     results.reserve(detections.size());
-    for (const auto& det : detections) {
-      DetectionResult result;
-      result.bbox.x = det.box.x;
-      result.bbox.y = det.box.y;
-      result.bbox.width = det.box.width;
-      result.bbox.height = det.box.height;
-      result.confidence = det.conf;
-      result.class_id = det.classId;
+for (const auto& det : detections) {
+  DetectionResult result;
+  result.bbox.x = det.box.x;
+  result.bbox.y = det.box.y;
+  result.bbox.width = det.box.width;
+  result.bbox.height = det.box.height;
+  result.confidence = det.conf;
+  result.class_id = det.classId;
 
-      if (det.classId >= 0 && 
-          static_cast<size_t>(det.classId) < impl_->class_names.size()) {
-        result.class_name = impl_->class_names[det.classId];
-      }
+  if (det.classId >= 0 &&
+      static_cast<size_t>(det.classId) < impl_->class_names.size()) {
+    result.class_name = impl_->class_names[det.classId];
+  }
 
-      results.push_back(std::move(result));
-    }
+  // Classes you want to keep
+  static const std::vector<std::string> allowed_classes = {
+    "car",
+    "truck",
+    "bus",
+    "person",
+    "traffic light"
+  };
+
+  if (std::find(
+        allowed_classes.begin(),
+        allowed_classes.end(),
+        result.class_name
+      ) == allowed_classes.end()) {
+    continue;
+  }
+
+  results.push_back(std::move(result));
+}
   } catch (const std::exception& e) {
     std::cerr << "[DetectorAdapter] Detection error: " << e.what() << std::endl;
   }
