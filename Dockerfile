@@ -58,14 +58,25 @@ WORKDIR /ros2_ws
 RUN mkdir -p src && \
     git clone https://github.com/AhmedAliMohammed1/V2x.git
 
-# Install package dependencies from package.xml
-RUN apt-get update && \
-    rosdep install --from-paths src --ignore-src -r -y && \
-    rm -rf /var/lib/apt/lists/*
-
+RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && \
+    apt-get update && \
+    cd /ros2_ws && \
+    rosdep install --rosdistro jazzy --from-paths src --ignore-src -r -y && \
+    rm -rf /var/lib/apt/lists/*"
+RUN apt-get update && apt-get install -y \
+    ros-jazzy-cv-bridge \
+    ros-jazzy-image-transport \
+    ros-jazzy-vision-msgs \
+    ros-jazzy-rclcpp-components \
+    ros-jazzy-rclcpp-lifecycle \
+    ros-jazzy-lifecycle-msgs \
+    && rm -rf /var/lib/apt/lists/*
 # Build the ROS 2 workspace
-RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release"
-
+RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && \
+    cd /ros2_ws && \
+    colcon build --cmake-args \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DONNXRUNTIME_DIR=/opt/onnxruntime"
 # Entrypoint setup to source ROS 2 and workspace on container start
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
 RUN echo "if [ -f /ros2_ws/install/setup.bash ]; then source /ros2_ws/install/setup.bash; fi" >> ~/.bashrc
