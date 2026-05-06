@@ -219,6 +219,16 @@ docker run --gpus all -it <docker_image_name> /bin/bash
 * Sourcing inside the Docker Container
 ```bash
 source install/setup.bash
+
+cd /tmp
+
+wget https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-gpu-1.20.1.tgz
+
+mkdir -p /opt/onnxruntime
+
+tar -xzf onnxruntime-linux-x64-gpu-1.20.1.tgz \
+  -C /opt/onnxruntime \
+  --strip-components=1
 ```
 * Tmux is already pre-installed in the docker, run `tmux`, split terminal and follow the previous mentioned procedure (Method 1) to run the setup.    
 * If you want to use Method 2 (automatic setup), make use of auto_start2.yml file - Replace the <container_name> with your docker container name in file and rename the file as `.tmuxinator.yml`
