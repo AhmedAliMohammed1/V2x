@@ -1,9 +1,6 @@
 # =============================================================================
 # ros2_yolos_cpp - ROS 2 Wrapper for YOLOs-CPP Inference Library
 # =============================================================================
-# Production-grade YOLO inference nodes with lifecycle management,
-# zero-copy composition, and adapter layer for loose coupling.
-# =============================================================================
 cmake_minimum_required(VERSION 3.16)
 project(ros2_yolos_cpp VERSION 1.0.0 LANGUAGES C CXX)
 
@@ -13,9 +10,6 @@ project(ros2_yolos_cpp VERSION 1.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(ONNXRUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime")
-set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_DIR}/include")
-set(ONNXRUNTIME_LIB_DIR "${ONNXRUNTIME_DIR}/lib")
 
 # Default to Release build if not specified
 if(NOT CMAKE_BUILD_TYPE)
@@ -51,87 +45,57 @@ find_package(OpenCV REQUIRED)
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
 
 # =============================================================================
-# ONNX Runtime - Find or Download
+# ONNX Runtime
 # =============================================================================
 
-# Check if ONNX Runtime is already installed
-find_library(ONNXRUNTIME_LIB onnxruntime
+set(ONNXRUNTIME_DIR "" CACHE PATH "Path to ONNX Runtime installation")
+
+if(NOT ONNXRUNTIME_DIR AND DEFINED ENV{ONNXRUNTIME_DIR})
+  set(ONNXRUNTIME_DIR $ENV{ONNXRUNTIME_DIR})
+endif()
+
+if(NOT ONNXRUNTIME_DIR)
+  set(ONNXRUNTIME_DIR "/ros2_ws/onnxruntime")
+endif()
+
+message(STATUS "ONNXRUNTIME_DIR: ${ONNXRUNTIME_DIR}")
+
+find_library(ONNXRUNTIME_LIB
+  NAMES onnxruntime libonnxruntime.so
   PATHS
     ${ONNXRUNTIME_DIR}/lib
-    /usr/local/lib
+    /ros2_ws/onnxruntime/lib
     /opt/onnxruntime/lib
+    /usr/local/lib
     $ENV{ONNXRUNTIME_DIR}/lib
 )
 
-if(ONNXRUNTIME_LIB)
-  message(STATUS "Found ONNX Runtime: ${ONNXRUNTIME_LIB}")
-  # Find include directory
-  find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
-    PATHS
-      ${ONNXRUNTIME_DIR}/include
-      /usr/local/include/onnxruntime
-      /opt/onnxruntime/include
-      $ENV{ONNXRUNTIME_DIR}/include
-  )
-  
-if(NOT EXISTS "${ONNXRUNTIME_INCLUDE_DIR}/onnxruntime_cxx_api.h")
-  message(FATAL_ERROR "ONNX Runtime headers not found")
+find_path(ONNXRUNTIME_INCLUDE_DIR
+  NAMES onnxruntime_cxx_api.h
+  PATHS
+    ${ONNXRUNTIME_DIR}/include
+    ${ONNXRUNTIME_DIR}/include/onnxruntime
+    ${ONNXRUNTIME_DIR}/include/onnxruntime/core/session
+    /ros2_ws/onnxruntime/include
+    /ros2_ws/onnxruntime/include/onnxruntime
+    /ros2_ws/onnxruntime/include/onnxruntime/core/session
+    /opt/onnxruntime/include
+    /opt/onnxruntime/include/onnxruntime
+    /opt/onnxruntime/include/onnxruntime/core/session
+    /usr/local/include
+    /usr/local/include/onnxruntime
+    /usr/local/include/onnxruntime/core/session
+    $ENV{ONNXRUNTIME_DIR}/include
+    $ENV{ONNXRUNTIME_DIR}/include/onnxruntime
+    $ENV{ONNXRUNTIME_DIR}/include/onnxruntime/core/session
+)
+
+if(NOT ONNXRUNTIME_LIB)
+  message(FATAL_ERROR "ONNX Runtime library not found. Set -DONNXRUNTIME_DIR=/path/to/onnxruntime")
 endif()
-else()
-  # Download ONNX Runtime manually (CMake 3.22 compatible)
-  set(ONNXRUNTIME_VERSION "1.20.1")
-  set(ONNXRUNTIME_DOWNLOAD_DIR "${CMAKE_BINARY_DIR}/onnxruntime-download")
-  set(ONNXRUNTIME_EXTRACT_DIR "${CMAKE_BINARY_DIR}/onnxruntime")
-  
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-    set(ONNXRUNTIME_ARCHIVE "onnxruntime-linux-aarch64-${ONNXRUNTIME_VERSION}.tgz")
-  else()
-    if(ENABLE_GPU)
-      set(ONNXRUNTIME_ARCHIVE "onnxruntime-linux-x64-gpu-${ONNXRUNTIME_VERSION}.tgz")
-    else()
-      set(ONNXRUNTIME_ARCHIVE "onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz")
-    endif()
-  endif()
-  
-  set(ONNXRUNTIME_ARCHIVE_PATH "${ONNXRUNTIME_DOWNLOAD_DIR}/${ONNXRUNTIME_ARCHIVE}")
-  set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/${ONNXRUNTIME_ARCHIVE}")
-  
-  if(NOT EXISTS "${ONNXRUNTIME_EXTRACT_DIR}/lib/libonnxruntime.so")
-    message(STATUS "Downloading ONNX Runtime from: ${ONNXRUNTIME_URL}")
-    
-    file(MAKE_DIRECTORY ${ONNXRUNTIME_DOWNLOAD_DIR})
-    file(DOWNLOAD
-      "${ONNXRUNTIME_URL}"
-      "${ONNXRUNTIME_ARCHIVE_PATH}"
-      SHOW_PROGRESS
-      STATUS DOWNLOAD_STATUS
-    )
-    list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
-    if(NOT STATUS_CODE EQUAL 0)
-      message(FATAL_ERROR "Failed to download ONNX Runtime: ${DOWNLOAD_STATUS}")
-    endif()
-    
-    message(STATUS "Extracting ONNX Runtime...")
-    file(MAKE_DIRECTORY ${ONNXRUNTIME_EXTRACT_DIR})
-    execute_process(
-      COMMAND ${CMAKE_COMMAND} -E tar xzf "${ONNXRUNTIME_ARCHIVE_PATH}"
-      WORKING_DIRECTORY "${ONNXRUNTIME_DOWNLOAD_DIR}"
-      RESULT_VARIABLE EXTRACT_RESULT
-    )
-    if(NOT EXTRACT_RESULT EQUAL 0)
-      message(FATAL_ERROR "Failed to extract ONNX Runtime")
-    endif()
-    
-    # Move contents to extract dir (strip top-level folder)
-    file(GLOB ONNX_CONTENTS "${ONNXRUNTIME_DOWNLOAD_DIR}/onnxruntime-*/*")
-    foreach(item ${ONNX_CONTENTS})
-      get_filename_component(item_name "${item}" NAME)
-      file(RENAME "${item}" "${ONNXRUNTIME_EXTRACT_DIR}/${item_name}")
-    endforeach()
-  endif()
-  
-  set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_EXTRACT_DIR}/include")
-  set(ONNXRUNTIME_LIB "${ONNXRUNTIME_EXTRACT_DIR}/lib/libonnxruntime.so")
+
+if(NOT ONNXRUNTIME_INCLUDE_DIR)
+  message(FATAL_ERROR "ONNX Runtime headers not found. Set -DONNXRUNTIME_DIR=/path/to/onnxruntime")
 endif()
 
 message(STATUS "ONNX Runtime include: ${ONNXRUNTIME_INCLUDE_DIR}")
@@ -146,43 +110,38 @@ set(YOLOS_CPP_URL "https://github.com/Geekgineer/YOLOs-CPP/archive/refs/heads/${
 
 if(NOT EXISTS "${YOLOS_CPP_DIR}/include/yolos/yolos.hpp")
   message(STATUS "Downloading YOLOs-CPP from: ${YOLOS_CPP_URL}")
-  
+
   file(DOWNLOAD
     "${YOLOS_CPP_URL}"
     "${CMAKE_BINARY_DIR}/yolos_cpp.tar.gz"
     SHOW_PROGRESS
     STATUS DOWNLOAD_STATUS
   )
-  
+
   list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
   if(NOT STATUS_CODE EQUAL 0)
     message(FATAL_ERROR "Failed to download YOLOs-CPP: ${DOWNLOAD_STATUS}")
   endif()
-  
+
   message(STATUS "Extracting YOLOs-CPP...")
   execute_process(
     COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/yolos_cpp.tar.gz"
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     RESULT_VARIABLE EXTRACT_RESULT
   )
-  
+
   if(NOT EXTRACT_RESULT EQUAL 0)
     message(FATAL_ERROR "Failed to extract YOLOs-CPP")
   endif()
-  
-  # Find the extracted folder (can vary by branch, e.g. YOLOs-CPP-main or YOLOs-CPP-master)
+
   file(GLOB EXTRACTED_DIRS "${CMAKE_BINARY_DIR}/YOLOs-CPP-*")
   if(NOT EXTRACTED_DIRS)
     message(FATAL_ERROR "Extraction failed: Could not find YOLOs-CPP-* directory in ${CMAKE_BINARY_DIR}")
   endif()
-  
-  # Use the first match
+
   list(GET EXTRACTED_DIRS 0 EXTRACTED_DIR)
-  
-  # Remove build dir if it exists from previous run
+
   file(REMOVE_RECURSE "${YOLOS_CPP_DIR}")
-  
-  # Rename to standard build directory
   file(RENAME "${EXTRACTED_DIR}" "${YOLOS_CPP_DIR}")
   file(REMOVE "${CMAKE_BINARY_DIR}/yolos_cpp.tar.gz")
 endif()
@@ -190,7 +149,7 @@ endif()
 message(STATUS "YOLOs-CPP Source: ${YOLOS_CPP_DIR}")
 
 # =============================================================================
-# Custom Messages (OBB Detection)
+# Custom Messages
 # =============================================================================
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/OrientedBoundingBox2D.msg"
@@ -214,19 +173,16 @@ include_directories(
 # Component Library
 # =============================================================================
 add_library(${PROJECT_NAME}_components SHARED
-  # Adapters
   src/adapters/detector_adapter.cpp
   src/adapters/segmentor_adapter.cpp
   src/adapters/pose_adapter.cpp
   src/adapters/obb_adapter.cpp
   src/adapters/classifier_adapter.cpp
-  # Message Converters
   src/conversion/detection_converter.cpp
   src/conversion/segmentation_converter.cpp
   src/conversion/pose_converter.cpp
   src/conversion/obb_converter.cpp
   src/conversion/classification_converter.cpp
-  # Nodes
   src/nodes/detector_node.cpp
   src/nodes/segmentor_node.cpp
   src/nodes/pose_node.cpp
@@ -237,6 +193,7 @@ add_library(${PROJECT_NAME}_components SHARED
 target_include_directories(${PROJECT_NAME}_components PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${ONNXRUNTIME_INCLUDE_DIR}
 )
 
 target_link_libraries(${PROJECT_NAME}_components
@@ -257,7 +214,6 @@ ament_target_dependencies(${PROJECT_NAME}_components
   lifecycle_msgs
 )
 
-# Link custom messages to component library
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(${PROJECT_NAME}_components "${cpp_typesupport_target}")
 
@@ -290,7 +246,7 @@ rclcpp_components_register_node(${PROJECT_NAME}_components
 )
 
 # =============================================================================
-# Set RPATH for ONNX Runtime
+# RPATH for ONNX Runtime
 # =============================================================================
 if(UNIX AND NOT APPLE)
   get_filename_component(ONNXRUNTIME_LIB_DIR ${ONNXRUNTIME_LIB} DIRECTORY)
@@ -327,23 +283,19 @@ install(DIRECTORY config/
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
-  
+
   find_package(ament_cmake_gtest REQUIRED)
-  
-  # Unit tests (always run)
+
   ament_add_gtest(test_detection_converter
     test/unit/test_detection_converter.cpp
   )
   target_link_libraries(test_detection_converter ${PROJECT_NAME}_components)
   ament_target_dependencies(test_detection_converter rclcpp vision_msgs)
-  
-  # Integration tests (require model files via environment variables)
-  # Set YOLOS_TEST_MODEL, YOLOS_TEST_LABELS, YOLOS_TEST_IMAGE to run
-  
+
   macro(add_integration_test target_name source_file)
     ament_add_gtest(${target_name} ${source_file})
-    target_link_libraries(${target_name} 
-      ${PROJECT_NAME}_components 
+    target_link_libraries(${target_name}
+      ${PROJECT_NAME}_components
       ${OpenCV_LIBS}
     )
     ament_target_dependencies(${target_name} rclcpp rclcpp_lifecycle)
@@ -373,9 +325,6 @@ ament_export_dependencies(
 
 ament_package()
 
-# =============================================================================
-# Summary
-# =============================================================================
 message(STATUS "")
 message(STATUS "=== ros2_yolos_cpp Configuration ===")
 message(STATUS "  Version:       ${PROJECT_VERSION}")
@@ -383,6 +332,7 @@ message(STATUS "  Build Type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ Standard:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "  OpenCV:        ${OpenCV_VERSION}")
 message(STATUS "  ONNX Runtime:  ${ONNXRUNTIME_LIB}")
+message(STATUS "  ONNX Include:  ${ONNXRUNTIME_INCLUDE_DIR}")
 message(STATUS "  YOLOs-CPP:     ${YOLOS_CPP_DIR}")
 message(STATUS "  GPU Support:   ${ENABLE_GPU}")
 message(STATUS "")
