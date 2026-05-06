@@ -224,10 +224,8 @@ cd /tmp
 
 wget https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-gpu-1.20.1.tgz
 
-mkdir -p /opt/onnxruntime
-
 tar -xzf onnxruntime-linux-x64-gpu-1.20.1.tgz \
-  -C /opt/onnxruntime \
+  -C ~/onnxruntime \
   --strip-components=1
 ```
 * Tmux is already pre-installed in the docker, run `tmux`, split terminal and follow the previous mentioned procedure (Method 1) to run the setup.    
