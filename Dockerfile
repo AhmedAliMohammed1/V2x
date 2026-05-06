@@ -3,7 +3,7 @@ FROM ros:jazzy
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics,display
 
-# Configurable paths, not user-specific
+# Configurable paths
 ENV ROS_WS=/ros2_ws
 ENV ONNXRUNTIME_DIR=/ros2_ws/onnxruntime
 ENV ONNXRUNTIME_ROOT=/ros2_ws/onnxruntime
@@ -44,7 +44,7 @@ RUN rosdep update
 # Workspace
 WORKDIR ${ROS_WS}
 
-# Install ONNX Runtime GPU in workspace, not /root or /opt
+# Install ONNX Runtime GPU in workspace
 RUN wget https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-gpu-1.20.1.tgz -O /tmp/onnx.tgz && \
     mkdir -p ${ONNXRUNTIME_DIR} && \
     tar -xzf /tmp/onnx.tgz -C ${ONNXRUNTIME_DIR} --strip-components=1 && \
@@ -75,6 +75,11 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-lifecycle-msgs \
     && rm -rf /var/lib/apt/lists/*
 
+# Verify ONNX Runtime before build
+RUN /bin/bash -c "echo ONNXRUNTIME_DIR=${ONNXRUNTIME_DIR} && \
+    find ${ONNXRUNTIME_DIR} -name onnxruntime_cxx_api.h && \
+    find ${ONNXRUNTIME_DIR} -name 'libonnxruntime.so*'"
+
 # Build ROS 2 workspace
 RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && \
     cd ${ROS_WS} && \
@@ -83,7 +88,8 @@ RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && \
     -DONNXRUNTIME_DIR=${ONNXRUNTIME_DIR}"
 
 # Make environment available for any user
-RUN echo "export ONNXRUNTIME_DIR=${ONNXRUNTIME_DIR}" >> /etc/bash.bashrc && \
+RUN echo "export ROS_WS=${ROS_WS}" >> /etc/bash.bashrc && \
+    echo "export ONNXRUNTIME_DIR=${ONNXRUNTIME_DIR}" >> /etc/bash.bashrc && \
     echo "export ONNXRUNTIME_ROOT=${ONNXRUNTIME_ROOT}" >> /etc/bash.bashrc && \
     echo "export LD_LIBRARY_PATH=${ONNXRUNTIME_DIR}/lib:\$LD_LIBRARY_PATH" >> /etc/bash.bashrc && \
     echo "source /opt/ros/jazzy/setup.bash" >> /etc/bash.bashrc && \
