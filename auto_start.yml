@@ -10,6 +10,8 @@ windows:
           - sleep 3
           - docker exec -it 4e5591515d47 bash -lc "pkill -f component_container_mt || true; pkill -f late_fusion_node || true; pkill -f ros2 || true"
           - sleep 3
+          - docker exec -it 4e5591515d47 bash -lc "mkdir -p /root/.ros/log/latest && source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && ros2 launch ros2_yolos_cpp detector1.launch.py model_path:=/ros2_ws/V2x/ros2_yolos_cpp/yolov8n.onnx labels_path:=/ros2_ws/V2x/ros2_yolos_cpp/coco.names use_gpu:=true image_topic:=/lucid_vision/camera_/image" 
+
 
         - pane2:
           - sleep 6
@@ -38,7 +40,7 @@ windows:
 
         - pane8:
           - sleep 25
-          - docker exec -it 4e5591515d47 bash -lc "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && ros2 lifecycle set /yolos_detector2 configure; sleep 2; ros2 lifecycle set /yolos_detector3 configure; sleep 2; ros2 lifecycle set /yolos_detector4 configure; sleep 2; ros2 lifecycle set /yolos_detector5 configure; sleep 2; ros2 lifecycle set /yolos_detector6 configure; sleep 2; ros2 lifecycle set /yolos_detector7 configure; sleep 5; ros2 lifecycle set /yolos_detector2 activate; sleep 2; ros2 lifecycle set /yolos_detector3 activate; sleep 2; ros2 lifecycle set /yolos_detector4 activate; sleep 2; ros2 lifecycle set /yolos_detector5 activate; sleep 2; ros2 lifecycle set /yolos_detector6 activate; sleep 2; ros2 lifecycle set /yolos_detector7 activate"
+          - docker exec -it 4e5591515d47 bash -lc "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && ros2 lifecycle set /yolos_detector1 configure; sleep 2; ros2 lifecycle set /yolos_detector2 configure; sleep 2; ros2 lifecycle set /yolos_detector3 configure; sleep 2; ros2 lifecycle set /yolos_detector4 configure; sleep 2; ros2 lifecycle set /yolos_detector5 configure; sleep 2; ros2 lifecycle set /yolos_detector6 configure; sleep 2; ros2 lifecycle set /yolos_detector7 configure; sleep 5; ros2 lifecycle set /yolos_detector1 activate; sleep 2; ros2 lifecycle set /yolos_detector2 activate; sleep 2; ros2 lifecycle set /yolos_detector3 activate; sleep 2; ros2 lifecycle set /yolos_detector4 activate; sleep 2; ros2 lifecycle set /yolos_detector5 activate; sleep 2; ros2 lifecycle set /yolos_detector6 activate; sleep 2; ros2 lifecycle set /yolos_detector7 activate"
 
         - pane9:
           - sleep 30
