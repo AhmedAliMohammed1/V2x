@@ -10,7 +10,6 @@ late_fusion_node:
       - /yolos_detector4/debug_image
       - /yolos_detector5/debug_image
       - /yolos_detector6/debug_image
-      - /yolos_detector7/debug_image
       
       
     det_inputs:
@@ -20,13 +19,12 @@ late_fusion_node:
       - /yolos_detector4/detections
       - /yolos_detector5/detections
       - /yolos_detector6/detections
-      - /yolos_detector7/detections
 
     output_det: /fused/detections
     output_img: /fused/debug_image
 
     # -------- STITCHING STYLE --------
     grid_rows: 1
-    grid_cols: 7
+    grid_cols: 6
     tile_width: 640
     tile_height: 480
