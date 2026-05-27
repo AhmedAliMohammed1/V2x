@@ -33,7 +33,7 @@ windows:
 
         - pane7:
           - sleep 25
-          - docker exec -it 4e5591515d47 bash -lc "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && ros2 lifecycle set /yolos_detector2 configure; sleep 2; ros2 lifecycle set /yolos_detector3 configure; sleep 2; ros2 lifecycle set /yolos_detector4 configure; sleep 2; ros2 lifecycle set /yolos_detector5 configure; sleep 2; ros2 lifecycle set /yolos_detector6 configure; sleep 2; ros2 lifecycle set /yolos_detector1 configure; sleep 5; ros2 lifecycle set /yolos_detector2 activate; sleep 2; ros2 lifecycle set /yolos_detector3 activate; sleep 2; ros2 lifecycle set /yolos_detector4 activate; sleep 2; ros2 lifecycle set /yolos_detector5 activate; sleep 2; ros2 lifecycle set /yolos_detector6 activate; sleep 2; ros2 lifecycle set /yolos_detector1 activate"
+          - docker exec -it 4e5591515d47 bash -lc "source /opt/ros/jazzy/setup.bash && source /ros2_ws/install/setup.bash && ros2 lifecycle set /yolos_detector2 configure; sleep 2; ros2 lifecycle set /yolos_detector3 configure; sleep 2; ros2 lifecycle set /yolos_detector4 configure; sleep 2; ros2 lifecycle set /yolos_detector5 configure;  sleep 2; ros2 lifecycle set /yolos_detector1 configure; sleep 5; ros2 lifecycle set /yolos_detector2 activate; sleep 2; ros2 lifecycle set /yolos_detector3 activate; sleep 2; ros2 lifecycle set /yolos_detector4 activate; sleep 2; ros2 lifecycle set /yolos_detector5 activate; ; sleep 2; ros2 lifecycle set /yolos_detector1 activate"
 
         - pane8:
           - sleep 30
