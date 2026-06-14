@@ -1,0 +1,925 @@
+% Compile with: latexmk -pdf V2X_Project_Report.tex
+% Alternative: pdflatex V2X_Project_Report.tex (run twice for the table of contents)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{textcomp}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+\definecolor{codebg}{RGB}{246,248,250}
+\definecolor{codeframe}{RGB}{208,215,222}
+\definecolor{linkblue}{RGB}{9,105,218}
+\definecolor{darkgreen}{RGB}{20,110,70}
+\definecolor{warning}{RGB}{170,80,0}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=linkblue,
+  urlcolor=linkblue,
+  citecolor=linkblue,
+  pdftitle={V2X Multi-Camera YOLO Late-Fusion Project Report},
+  pdfauthor={V2X Project Team}
+}
+
+\lstdefinestyle{terminal}{
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  upquote=true
+}
+\lstset{style=terminal}
+
+\setlist[itemize]{leftmargin=1.6em,itemsep=0.25em,topsep=0.4em}
+\setlist[enumerate]{leftmargin=1.8em,itemsep=0.25em,topsep=0.4em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\renewcommand{\arraystretch}{1.18}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{V2X Multi-Camera Perception}
+\rhead{Technical Project Report}
+\cfoot{\thepage}
+
+\titleformat{\section}{\Large\bfseries\color{linkblue}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.7em}{}
+
+\newcommand{\project}{\textbf{Late Fusion YOLOs CPP}}
+\newcommand{\ros}{ROS~2 Jazzy}
+\newcommand{\ort}{ONNX Runtime}
+\newcommand{\important}[1]{\textbf{\color{warning}#1}}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{2.0cm}
+  {\Huge\bfseries V2X Multi-Camera YOLO Late-Fusion System\par}
+  \vspace{0.6cm}
+  {\LARGE Complete Technical Report, Deployment Guide, and Development Roadmap\par}
+  \vspace{1.5cm}
+  {\Large Project: \project\par}
+  \vspace{0.4cm}
+  {\large ROS 2 Jazzy, C++17, ONNX Runtime, CUDA 12.6, cuDNN 9, and Docker\par}
+  \vfill
+  \begin{minipage}{0.88\textwidth}
+    \textbf{Document purpose.} This report explains the current project from end to end: its objective, architecture, data flow, packages, capabilities, known issues, implemented solutions, local-machine setup, Docker deployment, runtime operation, troubleshooting, validation evidence, and recommended next development steps.
+  \end{minipage}
+  \vfill
+  {\large Updated: June 14, 2026\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section{Executive Summary}
+
+\project{} is a multi-camera perception pipeline built on \ros. It runs an independent YOLO detector for each camera, publishes standard ROS detection messages, optionally publishes annotated images and timing data, and combines fresh outputs from multiple cameras into a single late-fusion detection stream and panoramic debug image.
+
+The primary deployment target is an NVIDIA GPU machine. The project also supports CPU inference. Its current reliability design isolates every detector in a separate operating-system process. If a fatal CUDA error poisons one detector's CUDA context, only that detector exits; ROS launch then respawns it, reloads the model, and returns it to the active lifecycle state.
+
+The project has been hardened around a real target-machine failure:
+
+\begin{lstlisting}
+CUDA failure 702: the launch timed out and was terminated
+CUBLAS_STATUS_NOT_INITIALIZED
+\end{lstlisting}
+
+CUDA error 702 is normally a GPU kernel timeout or watchdog termination. After this error, the process CUDA context is unsafe to reuse. The follow-on cuBLAS initialization error is usually a consequence of that poisoned context, not the original cause. The implemented solution therefore recovers at the process boundary instead of repeatedly attempting inference inside the broken process.
+
+\section{Project Objective}
+
+The project's objective is to provide a reliable, low-latency, deployable multi-camera perception system for V2X, intelligent transportation, robotics, and monitoring applications.
+
+The system is designed to:
+
+\begin{itemize}
+  \item Receive images from one to six independent cameras.
+  \item Run YOLO inference independently for each camera.
+  \item Support CPU inference and validated NVIDIA GPU inference.
+  \item Publish detections as \texttt{vision\_msgs/Detection2DArray} messages.
+  \item Optionally publish annotated debug images and timing measurements.
+  \item Aggregate fresh detections into one fused detection topic.
+  \item Resize and arrange fresh annotated images into a configurable panoramic grid.
+  \item Avoid old-frame queueing and unnecessary latency.
+  \item Automatically configure and activate detector lifecycle nodes.
+  \item Recover automatically when an affected detector suffers a fatal CUDA-context failure.
+  \item Provide repeatable native and Docker deployment workflows.
+\end{itemize}
+
+\section{Current Scope and Important Boundaries}
+
+The project currently performs \emph{late aggregation} of multi-camera detections. The fusion node concatenates detections that arrived recently and creates a visual grid from fresh images. It does not yet perform spatial calibration, coordinate transformation, overlap-aware object association, duplicate removal, or multi-camera tracking.
+
+This distinction matters:
+
+\begin{itemize}
+  \item \textbf{Current behavior:} fresh outputs from several independent detectors are combined into shared output topics.
+  \item \textbf{Future geometric fusion:} detections representing the same real-world object are associated and merged using calibrated camera geometry or world coordinates.
+\end{itemize}
+
+\section{System Architecture}
+
+\subsection{High-Level Architecture}
+
+\begin{lstlisting}
+Camera 1 --> Detector Process 1 --\
+Camera 2 --> Detector Process 2 ----\
+Camera 3 --> Detector Process 3 ------> Late Fusion Node --> /fused/detections
+Camera 4 --> Detector Process 4 ----/                    --> /fused/debug_image
+Camera 5 --> Detector Process 5 --/
+
+Each detector process:
+  image topic -> queue depth 1 -> YOLO/ONNX Runtime -> detections
+                                         |          -> optional debug image
+                                         +----------> optional timing
+
+Fatal CUDA context error:
+  detector exits -> ROS launch waits 1 second -> detector respawns
+  -> model reloads -> lifecycle autostart -> detector becomes active
+\end{lstlisting}
+
+\subsection{Why One Detector Per Process}
+
+Every detector runs in its own standalone lifecycle-node process. This architecture provides:
+
+\begin{itemize}
+  \item CUDA-context isolation between cameras.
+  \item Independent detector recovery.
+  \item Reduced risk of lifecycle and inference callback races.
+  \item Easier fault diagnosis and per-camera logging.
+  \item A clean process boundary for unrecoverable GPU failures.
+\end{itemize}
+
+A multi-threaded shared component container is intentionally avoided for the detector launch files because one poisoned CUDA context could otherwise affect multiple cameras, and respawning only the empty container would not automatically reload composable nodes.
+
+\section{Repository Structure}
+
+\begin{longtable}{>{\ttfamily}p{0.31\textwidth} p{0.61\textwidth}}
+\toprule
+\normalfont\textbf{Path} & \textbf{Purpose} \\
+\midrule
+\endhead
+ros2\_yolos\_cpp/ & ROS 2 C++ wrapper around YOLOs-CPP and ONNX Runtime. Contains detector, segmentor, pose, oriented-bounding-box, and classifier adapters and nodes. \\
+late\_fusion\_for\_yolos\_cpp/ & Multi-camera late-fusion node that aggregates fresh detections and creates a configurable image grid. \\
+ros2\_yolos\_cpp/launch/ & Launch files, including five standalone detector launch files with autostart and respawn. \\
+ros2\_yolos\_cpp/config/ & Default detector parameters. \\
+late\_fusion\_for\_yolos\_cpp/config/ & Fusion input topics, output topics, rate, and grid configuration. \\
+Dockerfile & Reproducible ROS 2 Jazzy GPU image with CUDA 12.6 runtime libraries, cuDNN 9, and ONNX Runtime GPU 1.20.1. \\
+auto\_start.yml & Host-side tmuxinator profile for starting the persistent Docker container, five staggered detectors, and late fusion. \\
+auto\_start2.yml & Three-camera tmuxinator profile intended to run inside the container. \\
+README.md & Concise user-facing build, operation, recovery, and troubleshooting guide. \\
+.dockerignore & Excludes Git metadata, local build products, logs, and Python caches from Docker build context. \\
+.gitattributes & Enforces consistent LF text line endings while preserving binary assets. \\
+\bottomrule
+\end{longtable}
+
+\section{Package Capabilities}
+
+\subsection{The \texttt{ros2\_yolos\_cpp} Package}
+
+This package provides ROS interfaces around YOLOs-CPP and \ort. Its supported task families are:
+
+\begin{itemize}
+  \item Object detection.
+  \item Instance segmentation.
+  \item Human pose/keypoint estimation.
+  \item Oriented bounding-box detection.
+  \item Image classification.
+\end{itemize}
+
+The hardened multi-camera startup path currently uses the detector task. Each detector:
+
+\begin{enumerate}
+  \item Loads a configured ONNX model and label file.
+  \item Selects CPU or CUDA inference according to \texttt{use\_gpu}.
+  \item Automatically configures and activates by default when launched through a detector launch file.
+  \item Subscribes to the camera image topic with sensor-data QoS and queue depth one.
+  \item Runs inference on the newest available frame.
+  \item Publishes detections and optional debug/timing outputs.
+\end{enumerate}
+
+\subsection{The \texttt{late\_fusion\_for\_yolos\_cpp} Package}
+
+The fusion node runs on a configurable timer, currently 10~Hz in the default configuration. It:
+
+\begin{itemize}
+  \item Subscribes to configured detection and debug-image topics.
+  \item Records the receipt time of every input.
+  \item Excludes inputs older than the configured freshness timeout, which defaults to 0.5 seconds in code.
+  \item Concatenates all fresh detections into \texttt{/fused/detections}.
+  \item Resizes fresh images into tiles and joins them into a grid.
+  \item Inserts a black tile when a camera is missing or stale.
+  \item Publishes the panorama on \texttt{/fused/debug\_image}.
+\end{itemize}
+
+The default fusion configuration is one row by five columns, with tiles of 640 by 480 pixels.
+
+\section{End-to-End Runtime Flow}
+
+\begin{enumerate}
+  \item A camera driver publishes an image, for example \texttt{/lucid\_vision/camera\_2/image}.
+  \item The matching detector lifecycle node receives only the newest queued image.
+  \item \texttt{cv\_bridge} converts the ROS image into an OpenCV matrix.
+  \item The detector adapter sends the image through YOLOs-CPP and \ort.
+  \item \ort{} runs either its CPU provider or CUDA execution provider.
+  \item The adapter converts model results into ROS detection messages.
+  \item The detector publishes detections and, when enabled, an annotated image and timing values.
+  \item The late-fusion node keeps the most recent outputs from each detector.
+  \item At each fusion timer tick, stale sources are ignored, fresh detections are concatenated, and fresh images are tiled.
+  \item Downstream ROS nodes, RViz on the host, or another V2X application consume the fused topics.
+\end{enumerate}
+
+\section{Primary Issues and Implemented Solutions}
+
+\begin{longtable}{p{0.25\textwidth} p{0.31\textwidth} p{0.36\textwidth}}
+\toprule
+\textbf{Issue} & \textbf{Impact / Cause} & \textbf{Implemented Solution} \\
+\midrule
+\endhead
+CUDA error 702 & GPU kernel exceeds driver timeout; current CUDA process context becomes unusable. & Detect fatal GPU markers, throw a dedicated fatal inference exception, terminate only the affected detector process, and let ROS launch respawn it. \\
+Repeated \texttt{CUBLAS\_STATUS\_NOT\_INITIALIZED} & Usually follows a poisoned CUDA context; continuing in the same process produces repeated failures. & Stop attempting in-process inference and recreate the CUDA context through process restart. \\
+Empty-container respawn & Respawning a composable-node container does not replay the original component-load action. & Launch each detector as a direct standalone lifecycle-node executable so process respawn recreates the detector itself. \\
+Queued-frame latency & A camera can publish faster than inference, causing old frames to accumulate. & Use sensor-data QoS with queue depth one. \\
+Unnecessary runtime overhead & Debug drawing and timing publication consume CPU/GPU time and bandwidth. & Disable \texttt{publish\_debug\_image} and \texttt{publish\_timing} by default. \\
+Manual lifecycle startup & Required separate configure and activate commands and was fragile after restart. & Add detector autostart that configures and activates automatically. \\
+GPU library mismatch discovered late & Missing CUDA-provider libraries could appear only at runtime. & Add CMake and Docker \texttt{ldd} validation of \texttt{libonnxruntime\_providers\_cuda.so}. \\
+CPU build unnecessarily required GPU & Default CMake behavior made non-GPU development difficult. & Make \texttt{ENABLE\_GPU=OFF} the native CMake default; Docker explicitly enables GPU validation. \\
+Slow and oversized CUDA image & Full CUDA toolkit installed compilers, profilers, GUI tools, and unrelated libraries. & Install only the runtime libraries directly required by the ONNX Runtime CUDA provider. \\
+Unnecessary container GUI stack & RViz belongs on the host and increased image size/build time. & Remove RViz from the deployment image and use host networking for ROS discovery. \\
+Inconsistent Docker source & Previous image cloned a remote repository instead of building the current checkout. & Docker now copies and builds the local build context. \\
+Stale duplicate startup processes & Multiple launch parents could leave duplicate detectors or fusion nodes. & Host startup profile safely stops stale launch and node processes before starting the pipeline. \\
+Line-ending churn & Mixed CRLF/LF endings created noisy diffs and portability problems. & Add \texttt{.gitattributes} with LF text policy and explicit binary patterns. \\
+\bottomrule
+\end{longtable}
+
+\section{CUDA Error 702: Root Cause and Recovery}
+
+\subsection{Meaning of the Error}
+
+CUDA error 702 means that a GPU kernel launch timed out and was terminated by the operating system or NVIDIA driver. Typical causes include:
+
+\begin{itemize}
+  \item A display-driver watchdog terminating long-running compute kernels.
+  \item Too many detectors or GPU workloads executing simultaneously.
+  \item Thermal throttling, unstable power, or GPU hardware instability.
+  \item A driver/runtime compatibility problem.
+  \item Excessive model size, input resolution, or inference workload.
+\end{itemize}
+
+After a launch timeout, the process CUDA context may be poisoned. Later calls such as memory copies, stream synchronization, or \texttt{cublasCreate} can fail. Therefore, catching the exception and continuing indefinitely is not a safe recovery strategy.
+
+\subsection{Fatal Error Markers}
+
+The detector classifies the following error patterns as fatal GPU-context failures:
+
+\begin{itemize}
+  \item \texttt{CUDA failure 700}
+  \item \texttt{CUDA failure 702}
+  \item \texttt{CUDA failure 719}
+  \item \texttt{CUDA\_ERROR\_LAUNCH\_TIMEOUT}
+  \item \texttt{cudaErrorLaunchTimeout}
+  \item \texttt{the launch timed out and was terminated}
+  \item \texttt{CUBLAS\_STATUS\_NOT\_INITIALIZED}
+\end{itemize}
+
+\subsection{Recovery Sequence}
+
+\begin{enumerate}
+  \item The detector adapter recognizes the fatal message.
+  \item It marks the adapter uninitialized and raises \texttt{FatalInferenceError}.
+  \item The lifecycle detector logs a fatal message and exits the process.
+  \item ROS launch waits one second and respawns the standalone detector executable.
+  \item A fresh process creates a fresh CUDA context.
+  \item Autostart configures the node, reloads the model, and activates it.
+\end{enumerate}
+
+\important{Automatic restart prevents a permanent pipeline stall, but repeated error 702 events still require correction of the target GPU load, driver, watchdog, power, or thermal condition.}
+
+\section{Low-Latency Design}
+
+The project reduces avoidable delay through the following choices:
+
+\begin{itemize}
+  \item Queue depth one for detector image subscriptions.
+  \item One detector per process, avoiding shared-process interference.
+  \item Staggered detector startup to reduce peak GPU initialization pressure.
+  \item Debug-image rendering disabled by default.
+  \item Timing publication disabled by default.
+  \item Release-mode compilation.
+  \item CUDA lazy module loading.
+  \item Freshness filtering in the fusion node.
+\end{itemize}
+
+No software system can guarantee zero delay under every workload. Real latency depends on camera rate, model complexity, input resolution, GPU capacity, DDS configuration, host load, and downstream subscribers.
+
+\section{Local Machine Setup}
+
+\subsection{Prerequisites}
+
+A native installation requires:
+
+\begin{itemize}
+  \item Ubuntu compatible with ROS 2 Jazzy.
+  \item ROS 2 Jazzy installed and sourced.
+  \item A C++17 compiler, CMake 3.16 or newer, and colcon.
+  \item OpenCV development libraries.
+  \item An extracted compatible ONNX Runtime distribution.
+  \item For local GPU mode: a working NVIDIA driver, CUDA-compatible runtime libraries, cuDNN, and the ONNX Runtime GPU distribution.
+\end{itemize}
+
+Confirm that ROS and the GPU driver are available:
+
+\begin{lstlisting}
+source /opt/ros/jazzy/setup.bash
+ros2 --help
+nvidia-smi                       # GPU mode only
+\end{lstlisting}
+
+\subsection{Create the Workspace and Install ROS Dependencies}
+
+\begin{lstlisting}
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src
+git clone https://github.com/Pavankumarsp02/late_fusion_yolos_cpp.git V2x
+
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y
+\end{lstlisting}
+
+If the repository is already available locally, place or link it under \texttt{\textasciitilde/ros2\_ws/src/V2x} instead of cloning it again.
+
+\subsection{Install ONNX Runtime for CPU Development}
+
+The following example installs ONNX Runtime 1.20.1 under \texttt{/opt/onnxruntime}. Administrator permission is required for \texttt{/opt}.
+
+\begin{lstlisting}
+cd /tmp
+wget https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-1.20.1.tgz
+sudo mkdir -p /opt/onnxruntime
+sudo tar -xzf onnxruntime-linux-x64-1.20.1.tgz \
+  -C /opt/onnxruntime --strip-components=1
+\end{lstlisting}
+
+\subsection{Build and Run Locally on CPU}
+
+\begin{lstlisting}
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+export ONNXRUNTIME_DIR=/opt/onnxruntime
+
+colcon build --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_GPU=OFF \
+  -DONNXRUNTIME_DIR="$ONNXRUNTIME_DIR"
+
+source install/setup.bash
+\end{lstlisting}
+
+Launch one CPU detector:
+
+\begin{lstlisting}
+ros2 launch ros2_yolos_cpp detector2.launch.py \
+  model_path:=~/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx \
+  labels_path:=~/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names \
+  use_gpu:=false \
+  image_topic:=/lucid_vision/camera_2/image
+\end{lstlisting}
+
+\subsection{Build and Run Locally on GPU}
+
+Install a GPU ONNX Runtime distribution and ensure its CUDA/cuDNN requirements match the host. The Docker image is recommended because it pins this stack. For native GPU builds:
+
+\begin{lstlisting}
+cd /tmp
+wget https://github.com/microsoft/onnxruntime/releases/download/v1.20.1/onnxruntime-linux-x64-gpu-1.20.1.tgz
+sudo mkdir -p /opt/onnxruntime-gpu
+sudo tar -xzf onnxruntime-linux-x64-gpu-1.20.1.tgz \
+  -C /opt/onnxruntime-gpu --strip-components=1
+
+ldd /opt/onnxruntime-gpu/lib/libonnxruntime_providers_cuda.so \
+  | grep 'not found'
+\end{lstlisting}
+
+The final command must print nothing. Then build:
+
+\begin{lstlisting}
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+export ONNXRUNTIME_DIR=/opt/onnxruntime-gpu
+
+colcon build --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_GPU=ON \
+  -DONNXRUNTIME_DIR="$ONNXRUNTIME_DIR"
+
+source install/setup.bash
+\end{lstlisting}
+
+Launch with \texttt{use\_gpu:=true} only after \texttt{nvidia-smi} and the \texttt{ldd} dependency check succeed.
+
+\section{Docker Deployment}
+
+\subsection{Why Docker Is Recommended}
+
+The Dockerfile pins and validates the GPU software stack:
+
+\begin{itemize}
+  \item ROS 2 Jazzy base image.
+  \item CUDA 12.6 runtime libraries required by ONNX Runtime.
+  \item cuDNN 9.
+  \item ONNX Runtime GPU 1.20.1.
+  \item A driver requirement of CUDA 12.6 or newer.
+  \item Provider dependency validation before compilation.
+  \item Release-mode builds of both ROS packages.
+\end{itemize}
+
+The image uses the local repository content as its build context. Therefore, Docker validates the same code currently being developed.
+
+\subsection{Host Requirements}
+
+Before building or running the image, the host must have Docker, NVIDIA Container Toolkit, and a loaded NVIDIA driver:
+
+\begin{lstlisting}
+docker --version
+nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi
+\end{lstlisting}
+
+If \texttt{nvidia-smi} fails on the host, GPU containers cannot start. Fix the host driver before debugging application libraries.
+
+\subsection{Build the Image}
+
+From the repository root:
+
+\begin{lstlisting}
+docker build --check .
+docker build -t v2x-gpu .
+\end{lstlisting}
+
+The build intentionally fails if the ONNX Runtime CUDA provider is absent or has unresolved shared-library dependencies.
+
+\subsection{Create the Persistent Container}
+
+Create the container once:
+
+\begin{lstlisting}
+docker run -d \
+  --name v2x-gpu-container \
+  --restart unless-stopped \
+  --gpus all \
+  --network host \
+  --ipc host \
+  --shm-size 1g \
+  v2x-gpu
+\end{lstlisting}
+
+Important options:
+
+\begin{itemize}
+  \item \texttt{--gpus all}: exposes NVIDIA GPUs to the container.
+  \item \texttt{--network host}: enables reliable DDS discovery with host camera drivers and host RViz.
+  \item \texttt{--ipc host} and \texttt{--shm-size 1g}: provide more suitable shared-memory behavior for ROS image workloads.
+  \item \texttt{--restart unless-stopped}: restarts the persistent container after host reboot or daemon restart.
+\end{itemize}
+
+GPU access is fixed when the container is created. Running \texttt{docker start} later cannot add a missing \texttt{--gpus all} option.
+
+\subsection{Verify the Container}
+
+\begin{lstlisting}
+docker exec v2x-gpu-container nvidia-smi
+
+docker exec v2x-gpu-container bash -lc \
+  "ldd /ros2_ws/onnxruntime/lib/libonnxruntime_providers_cuda.so \
+  | grep 'not found' || true"
+
+docker inspect --format '{{.State.Health.Status}}' v2x-gpu-container
+\end{lstlisting}
+
+Expected results:
+
+\begin{itemize}
+  \item \texttt{nvidia-smi} displays the GPU and driver.
+  \item The \texttt{ldd} command prints nothing.
+  \item The health status becomes \texttt{healthy}.
+\end{itemize}
+
+\subsection{Run One Detector in Docker}
+
+\begin{lstlisting}
+docker exec -it v2x-gpu-container bash -lc '
+source /opt/ros/jazzy/setup.bash
+source /ros2_ws/install/setup.bash
+ros2 launch ros2_yolos_cpp detector2.launch.py \
+  model_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx \
+  labels_path:=/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names \
+  use_gpu:=true \
+  image_topic:=/lucid_vision/camera_2/image
+'
+\end{lstlisting}
+
+\subsection{Run Late Fusion in Docker}
+
+In a separate terminal:
+
+\begin{lstlisting}
+docker exec -it v2x-gpu-container bash -lc '
+source /opt/ros/jazzy/setup.bash
+source /ros2_ws/install/setup.bash
+ros2 launch late_fusion_for_yolos_cpp launch_fusion_node.py
+'
+\end{lstlisting}
+
+\section{Automated Multi-Camera Startup}
+
+\subsection{Host-Side Tmuxinator Profile}
+
+The host-side \texttt{auto\_start.yml} profile:
+
+\begin{enumerate}
+  \item Starts \texttt{v2x-gpu-container}.
+  \item Stops stale detector launch parents, detector processes, component containers, and fusion processes.
+  \item Starts five detector launch files at three-second intervals.
+  \item Starts late fusion after the detectors have had time to initialize.
+\end{enumerate}
+
+Install tmuxinator and place the profile:
+
+\begin{lstlisting}
+mkdir -p ~/.tmuxinator
+cp auto_start.yml ~/.tmuxinator/auto_start.yml
+tmuxinator start auto_start
+\end{lstlisting}
+
+Attach to the session later:
+
+\begin{lstlisting}
+tmux attach -t auto_start
+\end{lstlisting}
+
+\subsection{Inside-Container Profile}
+
+The \texttt{auto\_start2.yml} profile provides a smaller three-camera startup intended to execute inside the container. It can be copied into the container user's tmuxinator configuration and launched there.
+
+\section{Detector Configuration}
+
+Important launch arguments are:
+
+\begin{longtable}{>{\ttfamily}p{0.27\textwidth} p{0.20\textwidth} p{0.43\textwidth}}
+\toprule
+\normalfont\textbf{Argument} & \textbf{Default} & \textbf{Meaning} \\
+\midrule
+\endhead
+model\_path & required & Path to the ONNX model. \\
+labels\_path & required & Path to the class-label file. \\
+autostart & true in detector launch files & Automatically configure and activate the lifecycle node. \\
+use\_gpu & false & Request the ONNX Runtime CUDA provider. \\
+conf\_threshold & 0.4 & Minimum detection confidence. \\
+nms\_threshold & 0.45 & Non-maximum suppression intersection-over-union threshold. \\
+publish\_debug\_image & false & Publish annotated images; enable when visualization is required. \\
+publish\_timing & false & Publish inference timing; enable during profiling. \\
+image\_topic & /camera/image\_raw & Source camera image topic. \\
+camera\_info\_topic & /camera/camera\_info & Camera information topic remapping. \\
+\bottomrule
+\end{longtable}
+
+For manual lifecycle operation, launch with \texttt{autostart:=false}, then use:
+
+\begin{lstlisting}
+ros2 lifecycle set /yolos_detector2 configure
+ros2 lifecycle set /yolos_detector2 activate
+ros2 lifecycle get /yolos_detector2
+\end{lstlisting}
+
+\section{Fusion Configuration}
+
+The default configuration consumes detector outputs from nodes one through five and publishes:
+
+\begin{itemize}
+  \item \texttt{/fused/detections}
+  \item \texttt{/fused/debug\_image}
+\end{itemize}
+
+Change \texttt{late\_fusion\_for\_yolos\_cpp/config/late\_fusion\_params.yaml} to alter:
+
+\begin{itemize}
+  \item Input image topics.
+  \item Input detection topics.
+  \item Output topics.
+  \item Fusion publication rate.
+  \item Grid rows and columns.
+  \item Tile width and height.
+\end{itemize}
+
+When debug images are disabled on detectors, the fusion image grid will not receive those annotated image topics. Detections can still be fused. Enable \texttt{publish\_debug\_image:=true} only on cameras whose annotated images are needed in the panoramic output.
+
+\section{Testing and Validation}
+
+\subsection{Recommended Native Test Commands}
+
+\begin{lstlisting}
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+colcon test --packages-select ros2_yolos_cpp late_fusion_for_yolos_cpp
+colcon test-result --verbose
+\end{lstlisting}
+
+For a release build without compiling tests:
+
+\begin{lstlisting}
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+\end{lstlisting}
+
+\subsection{Recommended Operational Checks}
+
+\begin{lstlisting}
+# List nodes and topics
+ros2 node list
+ros2 topic list
+
+# Confirm detector state
+ros2 lifecycle get /yolos_detector2
+
+# Measure topic frequency
+ros2 topic hz /yolos_detector2/detections
+ros2 topic hz /fused/detections
+
+# Inspect a detection message
+ros2 topic echo --once /fused/detections
+\end{lstlisting}
+
+\subsection{Validation Completed for the Current Project}
+
+The current hardened implementation has been validated with:
+
+\begin{itemize}
+  \item Successful full Docker image build.
+  \item Successful compilation of both ROS packages inside the final image.
+  \item Successful ONNX Runtime CUDA-provider dependency validation using \texttt{ldd}.
+  \item Successful CPU-compatible CMake path with \texttt{ENABLE\_GPU=OFF}.
+  \item Successful functional/unit tests, including fatal-GPU-error classification tests.
+  \item Successful construction of all five detector launch descriptions.
+  \item Successful live lifecycle and respawn test: detector state was active before process termination and active again after respawn.
+  \item Clean Dockerfile static check, YAML parsing, and Git diff whitespace check.
+\end{itemize}
+
+An actual GPU inference run could not be completed on the development workstation because its host NVIDIA driver was not loaded. The NVIDIA container hook failed before container startup with an NVML driver error. This does not indicate a missing library inside the built image; it means the host driver must be repaired before GPU containers can run.
+
+\section{Troubleshooting Guide}
+
+\subsection{Host \texttt{nvidia-smi} Fails}
+
+\textbf{Meaning:} the NVIDIA driver is not loaded or cannot communicate with the GPU.
+
+\textbf{Action:}
+
+\begin{lstlisting}
+nvidia-smi
+lsmod | grep nvidia
+journalctl -k | grep -i nvidia
+\end{lstlisting}
+
+Repair or reinstall the compatible NVIDIA driver and reboot if required. Do not begin with application-library debugging when host \texttt{nvidia-smi} already fails.
+
+\subsection{GPU Container Cannot Start}
+
+Example error:
+
+\begin{lstlisting}
+nvidia-container-cli: initialization error: nvml error: driver not loaded
+\end{lstlisting}
+
+Confirm the host driver and NVIDIA Container Toolkit. Recreate the container with \texttt{--gpus all}; that option cannot be added with \texttt{docker start}.
+
+\subsection{Missing CUDA Provider Dependencies}
+
+\begin{lstlisting}
+ldd /ros2_ws/onnxruntime/lib/libonnxruntime_providers_cuda.so \
+  | grep 'not found'
+\end{lstlisting}
+
+Any output identifies a missing runtime library. Rebuild from the provided Dockerfile or install the exact required library version on a native deployment.
+
+\subsection{Repeated CUDA Error 702}
+
+\begin{itemize}
+  \item Confirm the driver reports CUDA 12.6 or newer.
+  \item Check GPU utilization, temperature, power, and memory with \texttt{nvidia-smi}.
+  \item Reduce simultaneous detector load or use a smaller model/input resolution.
+  \item Keep debug images and timing disabled.
+  \item Stagger detector startup.
+  \item Review the target operating system's GPU watchdog policy.
+  \item Verify stable power delivery and cooling.
+\end{itemize}
+
+\subsection{Detector Does Not Become Active}
+
+\begin{lstlisting}
+ros2 lifecycle get /yolos_detector2
+ros2 node list
+ros2 topic list
+\end{lstlisting}
+
+Check the launch pane for invalid model paths, label paths, ONNX Runtime initialization failures, or unavailable camera topics. Detector launch files enable autostart by default.
+
+\subsection{Fusion Output Is Empty or Black}
+
+\begin{itemize}
+  \item Confirm detector output topic names match the fusion YAML.
+  \item Confirm detector messages are fresh and arriving faster than the timeout threshold.
+  \item Enable \texttt{publish\_debug\_image:=true} when panoramic annotated images are required.
+  \item Check grid dimensions against the number of input image topics.
+\end{itemize}
+
+\subsection{ROS Topics Are Not Visible Across Docker and Host}
+
+Use \texttt{--network host} when creating the container. Also confirm matching ROS domain IDs and compatible DDS configuration:
+
+\begin{lstlisting}
+echo "$ROS_DOMAIN_ID"
+docker exec v2x-gpu-container bash -lc \
+  'source /opt/ros/jazzy/setup.bash; source /ros2_ws/install/setup.bash; ros2 topic list'
+\end{lstlisting}
+
+\section{How to Continue Development}
+
+\subsection{Safe Daily Development Workflow}
+
+\begin{enumerate}
+  \item Create a feature branch.
+  \item Make a narrowly scoped change.
+  \item Build the affected package locally or inside Docker.
+  \item Run focused unit tests.
+  \item Run launch construction and configuration checks.
+  \item Exercise the affected runtime path.
+  \item Review logs and resource usage.
+  \item Update README and this report when behavior or commands change.
+\end{enumerate}
+
+Example:
+
+\begin{lstlisting}
+git switch -c feature/my-change
+
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select ros2_yolos_cpp --cmake-args \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_GPU=OFF \
+  -DONNXRUNTIME_DIR=/opt/onnxruntime
+source install/setup.bash
+colcon test --packages-select ros2_yolos_cpp
+colcon test-result --verbose
+\end{lstlisting}
+
+\subsection{Recommended Next Technical Improvements}
+
+\begin{enumerate}
+  \item \textbf{True geometric fusion:} calibrate cameras, transform detections into a common frame, associate overlapping detections, and remove duplicates.
+  \item \textbf{Multi-camera tracking:} assign persistent object identities across cameras and time.
+  \item \textbf{GPU health supervision:} publish restart counts, fatal GPU errors, temperature, memory, and inference latency as diagnostics.
+  \item \textbf{Restart backoff policy:} add escalating delay or circuit-breaker behavior if a detector repeatedly encounters CUDA 702.
+  \item \textbf{Configurable freshness timeout:} expose and document \texttt{timeout\_threshold} in the fusion YAML.
+  \item \textbf{Per-camera parameters:} maintain one configuration file describing camera topics, model paths, thresholds, and enabled outputs.
+  \item \textbf{Launch generation:} replace five nearly identical launch files with one parameterized multi-camera launch generator while retaining one process per detector.
+  \item \textbf{Performance benchmarking:} record end-to-end latency, frames per second, GPU utilization, and dropped-frame behavior for each supported model.
+  \item \textbf{CI pipeline:} automatically run CPU builds, unit tests, launch checks, Docker static checks, and formatting checks on every change.
+  \item \textbf{GPU CI runner:} periodically execute real CUDA inference and forced-restart tests on a compatible NVIDIA runner.
+  \item \textbf{Production logging:} add structured logs, log rotation, and restart/event summaries.
+  \item \textbf{Security hardening:} run the container as a non-root user, pin downloaded artifact checksums, and use a multi-stage runtime image.
+  \item \textbf{Dependency cleanup:} reduce broad OpenCV/package dependencies after verifying the exact modules required by YOLOs-CPP and fusion.
+  \item \textbf{Broader recovery:} evaluate whether segmentation, pose, OBB, and classifier launch paths need the same fatal CUDA process-isolation behavior.
+\end{enumerate}
+
+\section{Operational Recommendations}
+
+For production deployment:
+
+\begin{itemize}
+  \item Use the Docker GPU path for consistent CUDA, cuDNN, and ONNX Runtime versions.
+  \item Keep one detector per process.
+  \item Keep queue depth one.
+  \item Disable debug images and timing unless needed.
+  \item Monitor detector restart frequency; a high restart rate is a system-health fault.
+  \item Validate the GPU driver and provider linkage before starting cameras.
+  \item Run RViz on the host rather than inside the detector container.
+  \item Use tmuxinator or a proper service supervisor to keep launch output observable.
+  \item Store model files and labels under controlled, versioned paths.
+  \item Benchmark the target hardware with the exact number of cameras and model resolution used in production.
+\end{itemize}
+
+\section{A-to-Z Project Checklist}
+
+\begin{longtable}{p{0.08\textwidth} p{0.82\textwidth}}
+\toprule
+\textbf{Step} & \textbf{Action} \\
+\midrule
+\endhead
+A & Acquire camera images and verify their ROS topics. \\
+B & Build the ROS workspace or Docker image in Release mode. \\
+C & Confirm ONNX model and labels paths. \\
+D & Decide CPU or GPU inference mode. \\
+E & Ensure ONNX Runtime provider dependencies are resolved. \\
+F & Fix host NVIDIA driver issues before GPU-container troubleshooting. \\
+G & Give each camera its own detector process. \\
+H & Hold only the newest image with queue depth one. \\
+I & Initialize detectors in staggered order. \\
+J & Join fresh outputs in the late-fusion node. \\
+K & Keep debug-image and timing outputs disabled for lowest overhead. \\
+L & Launch detectors with autostart enabled. \\
+M & Monitor lifecycle state, topic rate, GPU load, and restart count. \\
+N & Never continue using a process after a fatal CUDA-context error. \\
+O & Observe fused detections and optional panoramic image. \\
+P & Publish results to downstream V2X or robotics consumers. \\
+Q & Qualify performance on the real target machine. \\
+R & Respawn only the failed detector process. \\
+S & Stagger startup and supervise the pipeline. \\
+T & Test builds, launch descriptions, configuration, and recovery behavior. \\
+U & Update documentation whenever behavior or commands change. \\
+V & Validate Docker health and CUDA-provider linkage. \\
+W & Watch for repeated CUDA 702 events and correct the host workload/watchdog cause. \\
+X & eXtend toward calibrated geometric fusion and tracking. \\
+Y & Yield reliable, low-latency multi-camera outputs. \\
+Z & Zero unnecessary queued frames; do not claim zero physical latency. \\
+\bottomrule
+\end{longtable}
+
+\section{Command Quick Reference}
+
+\subsection{Build and Run Locally on CPU}
+
+\begin{lstlisting}
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash
+rosdep install --from-paths src --ignore-src -r -y
+export ONNXRUNTIME_DIR=/opt/onnxruntime
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_GPU=OFF -DONNXRUNTIME_DIR="$ONNXRUNTIME_DIR"
+source install/setup.bash
+ros2 launch ros2_yolos_cpp detector2.launch.py \
+  model_path:=~/ros2_ws/src/V2x/ros2_yolos_cpp/yolov8n.onnx \
+  labels_path:=~/ros2_ws/src/V2x/ros2_yolos_cpp/coco.names \
+  use_gpu:=false image_topic:=/lucid_vision/camera_2/image
+\end{lstlisting}
+
+\subsection{Build and Run with Docker GPU}
+
+\begin{lstlisting}
+docker build --check .
+docker build -t v2x-gpu .
+
+docker run -d --name v2x-gpu-container --restart unless-stopped \
+  --gpus all --network host --ipc host --shm-size 1g v2x-gpu
+
+docker exec v2x-gpu-container nvidia-smi
+docker inspect --format '{{.State.Health.Status}}' v2x-gpu-container
+
+tmuxinator start auto_start
+\end{lstlisting}
+
+\subsection{Troubleshooting}
+
+\begin{lstlisting}
+nvidia-smi
+
+docker exec v2x-gpu-container bash -lc \
+  "ldd /ros2_ws/onnxruntime/lib/libonnxruntime_providers_cuda.so \
+  | grep 'not found'"
+
+docker exec v2x-gpu-container bash -lc \
+  'source /opt/ros/jazzy/setup.bash; source /ros2_ws/install/setup.bash; ros2 topic list'
+
+tmux attach -t auto_start
+\end{lstlisting}
+
+\section{Conclusion}
+
+\project{} is now a buildable and operationally hardened ROS 2 multi-camera perception pipeline. It supports CPU and GPU inference, isolates detector failures, automatically manages detector lifecycle state, minimizes queued-frame latency, validates the GPU runtime stack during build, and provides repeatable local and Docker workflows.
+
+The most important reliability improvement is process-level recovery from fatal CUDA-context failures. This prevents one error 702 event from leaving a detector permanently stuck in repeated ONNX Runtime and cuBLAS failures. However, restart is a recovery mechanism, not a substitute for correcting repeated GPU watchdog, load, thermal, power, or driver problems on the target machine.
+
+The clearest next step is to evolve the current late aggregation into calibrated geometric multi-camera fusion with object association and tracking, while adding production diagnostics and automated GPU validation.
+
+\end{document}

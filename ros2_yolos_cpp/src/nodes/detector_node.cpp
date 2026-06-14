@@ -9,6 +9,8 @@
 #include <cv_bridge/cv_bridge.h>
 #endif
 #include <chrono>
+#include <cstdlib>
+#include <lifecycle_msgs/msg/state.hpp>
 
 namespace ros2_yolos_cpp {
 
@@ -16,17 +18,47 @@ YolosDetectorNode::YolosDetectorNode(const rclcpp::NodeOptions& options)
   : rclcpp_lifecycle::LifecycleNode("yolos_detector", options) {
   RCLCPP_INFO(get_logger(), "YolosDetectorNode created");
   declareParameters();
+  autostart_ = get_parameter("autostart").as_bool();
+  if (autostart_) {
+    autostart_timer_ = create_wall_timer(
+      std::chrono::milliseconds(250),
+      std::bind(&YolosDetectorNode::autostart, this));
+  }
 }
 
 void YolosDetectorNode::declareParameters() {
   declare_parameter("model_path", rclcpp::PARAMETER_STRING);
   declare_parameter("labels_path", rclcpp::PARAMETER_STRING);
+  declare_parameter("autostart", false);
   declare_parameter("use_gpu", false);
   declare_parameter("conf_threshold", 0.4);
   declare_parameter("nms_threshold", 0.45);
   declare_parameter("yolo_version", "auto");
   declare_parameter("publish_debug_image", false);
   declare_parameter("publish_timing", false);
+}
+
+[[noreturn]] void YolosDetectorNode::exitAfterFatalInferenceError(const char* message) {
+  RCLCPP_FATAL(
+    get_logger(),
+    "Fatal GPU inference error: %s. Exiting so launch can recreate the CUDA context.",
+    message);
+  std::_Exit(EXIT_FAILURE);
+}
+
+void YolosDetectorNode::autostart() {
+  autostart_timer_->cancel();
+
+  auto state = configure();
+  if (state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+    RCLCPP_ERROR(get_logger(), "Autostart configuration failed; node remains unconfigured");
+    return;
+  }
+
+  state = activate();
+  if (state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    RCLCPP_ERROR(get_logger(), "Autostart activation failed; node remains inactive");
+  }
 }
 
 YolosConfig YolosDetectorNode::loadConfig() {
@@ -69,6 +101,8 @@ YolosDetectorNode::CallbackReturn YolosDetectorNode::on_configure(const rclcpp_l
     if (publish_timing_) timing_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>("~/timing", 10);
     RCLCPP_INFO(get_logger(), "Configured successfully");
     return CallbackReturn::SUCCESS;
+  } catch (const FatalInferenceError& e) {
+    exitAfterFatalInferenceError(e.what());
   } catch (const std::exception& e) {
     RCLCPP_ERROR(get_logger(), "Configuration failed: %s", e.what());
     return CallbackReturn::FAILURE;
@@ -83,8 +117,9 @@ YolosDetectorNode::CallbackReturn YolosDetectorNode::on_activate(const rclcpp_li
 
   auto sub_options = rclcpp::SubscriptionOptions();
   sub_options.callback_group = inference_cb_group_;
+  auto image_qos = rclcpp::SensorDataQoS().keep_last(1);
   image_sub_ = create_subscription<sensor_msgs::msg::Image>(
-    "~/image_raw", rclcpp::SensorDataQoS(),
+    "~/image_raw", image_qos,
     std::bind(&YolosDetectorNode::imageCallback, this, std::placeholders::_1),
     sub_options);
 
@@ -135,7 +170,12 @@ void YolosDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
       };
       timing_pub_->publish(timing);
     }
+  } catch (const FatalInferenceError& e) {
+    exitAfterFatalInferenceError(e.what());
   } catch (const std::exception& e) {
+    if (isFatalGpuErrorMessage(e.what())) {
+      exitAfterFatalInferenceError(e.what());
+    }
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "Detection failed: %s", e.what());
   }
 }

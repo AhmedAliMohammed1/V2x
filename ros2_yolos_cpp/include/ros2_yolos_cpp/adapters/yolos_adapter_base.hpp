@@ -12,7 +12,9 @@
 // =============================================================================
 
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
 
@@ -21,6 +23,32 @@
 #include "ros2_yolos_cpp/visibility_control.hpp"
 
 namespace ros2_yolos_cpp {
+
+/// @brief Raised when a GPU failure leaves the current process unable to run inference safely.
+class ROS2_YOLOS_CPP_PUBLIC FatalInferenceError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
+/// @brief Return true when an ONNX Runtime error indicates a poisoned CUDA context.
+inline bool isFatalGpuErrorMessage(std::string_view message) noexcept {
+  constexpr std::string_view fatal_markers[] = {
+    "CUDA failure 700",
+    "CUDA failure 702",
+    "CUDA failure 719",
+    "CUDA_ERROR_LAUNCH_TIMEOUT",
+    "cudaErrorLaunchTimeout",
+    "the launch timed out and was terminated",
+    "CUBLAS_STATUS_NOT_INITIALIZED"
+  };
+
+  for (const auto marker : fatal_markers) {
+    if (message.find(marker) != std::string_view::npos) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // =============================================================================
 // Configuration Structs (Library-agnostic)

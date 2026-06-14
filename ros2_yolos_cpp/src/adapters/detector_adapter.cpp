@@ -6,7 +6,6 @@
 // YOLOs-CPP includes - ONLY in implementation file
 #include "yolos/yolos.hpp"
 
-#include <stdexcept>
 #include <iostream>
 
 namespace ros2_yolos_cpp {
@@ -67,8 +66,11 @@ bool DetectorAdapter::initialize(const YolosConfig& config) {
     
     return true;
   } catch (const std::exception& e) {
-    std::cerr << "[DetectorAdapter] Initialization error: " << e.what() << std::endl;
     impl_->initialized = false;
+    if (isFatalGpuErrorMessage(e.what())) {
+      throw FatalInferenceError(e.what());
+    }
+    std::cerr << "[DetectorAdapter] Initialization error: " << e.what() << std::endl;
     return false;
   }
 }
@@ -140,6 +142,10 @@ for (const auto& det : detections) {
   results.push_back(std::move(result));
 }
   } catch (const std::exception& e) {
+    if (isFatalGpuErrorMessage(e.what())) {
+      impl_->initialized = false;
+      throw FatalInferenceError(e.what());
+    }
     std::cerr << "[DetectorAdapter] Detection error: " << e.what() << std::endl;
   }
 

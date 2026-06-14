@@ -93,4 +93,17 @@ TEST_F(DetectionConverterTest, CoordinateIntegrity) {
   EXPECT_DOUBLE_EQ(msg.bbox.center.position.y, 50.0);
 }
 
+TEST(FatalGpuErrorTest, RecognizesPoisonedCudaContextErrors) {
+  EXPECT_TRUE(ros2_yolos_cpp::isFatalGpuErrorMessage(
+    "CUDA failure 702: the launch timed out and was terminated"));
+  EXPECT_TRUE(ros2_yolos_cpp::isFatalGpuErrorMessage(
+    "CUBLAS failure 1: CUBLAS_STATUS_NOT_INITIALIZED"));
+  EXPECT_TRUE(ros2_yolos_cpp::isFatalGpuErrorMessage("CUDA failure 719: launch failure"));
+}
+
+TEST(FatalGpuErrorTest, LeavesRecoverableErrorsNonfatal) {
+  EXPECT_FALSE(ros2_yolos_cpp::isFatalGpuErrorMessage("invalid image dimensions"));
+  EXPECT_FALSE(ros2_yolos_cpp::isFatalGpuErrorMessage("model file not found"));
+}
+
 }  // namespace ros2_yolos_cpp::conversion

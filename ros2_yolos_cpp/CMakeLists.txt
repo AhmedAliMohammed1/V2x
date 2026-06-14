@@ -20,7 +20,7 @@ endif()
 # Build Options
 # =============================================================================
 option(BUILD_TESTING "Build tests" ON)
-option(ENABLE_GPU "Enable CUDA GPU support" ON)
+option(ENABLE_GPU "Require and validate the ONNX Runtime CUDA provider" OFF)
 
 # =============================================================================
 # Find ROS 2 Dependencies
@@ -98,8 +98,51 @@ if(NOT ONNXRUNTIME_INCLUDE_DIR)
   message(FATAL_ERROR "ONNX Runtime headers not found. Set -DONNXRUNTIME_DIR=/path/to/onnxruntime")
 endif()
 
+if(ENABLE_GPU)
+  find_library(ONNXRUNTIME_CUDA_PROVIDER_LIB
+    NAMES onnxruntime_providers_cuda
+    PATHS
+      ${ONNXRUNTIME_DIR}/lib
+      /ros2_ws/onnxruntime/lib
+      /opt/onnxruntime/lib
+      $ENV{ONNXRUNTIME_DIR}/lib
+    NO_DEFAULT_PATH
+  )
+
+  if(NOT ONNXRUNTIME_CUDA_PROVIDER_LIB)
+    message(FATAL_ERROR
+      "ENABLE_GPU=ON, but libonnxruntime_providers_cuda.so was not found under "
+      "ONNXRUNTIME_DIR=${ONNXRUNTIME_DIR}. Install the ONNX Runtime GPU package "
+      "or configure with -DENABLE_GPU=OFF."
+    )
+  endif()
+
+  find_program(LDD_EXECUTABLE ldd)
+  if(LDD_EXECUTABLE)
+    execute_process(
+      COMMAND ${LDD_EXECUTABLE} ${ONNXRUNTIME_CUDA_PROVIDER_LIB}
+      RESULT_VARIABLE CUDA_PROVIDER_LDD_RESULT
+      OUTPUT_VARIABLE CUDA_PROVIDER_LDD_OUTPUT
+      ERROR_VARIABLE CUDA_PROVIDER_LDD_ERROR
+    )
+    if(
+      NOT CUDA_PROVIDER_LDD_RESULT EQUAL 0 OR
+      CUDA_PROVIDER_LDD_OUTPUT MATCHES "not found" OR
+      CUDA_PROVIDER_LDD_ERROR MATCHES "not found"
+    )
+      message(FATAL_ERROR
+        "ONNX Runtime CUDA provider has missing runtime dependencies:\n"
+        "${CUDA_PROVIDER_LDD_OUTPUT}${CUDA_PROVIDER_LDD_ERROR}"
+      )
+    endif()
+  endif()
+endif()
+
 message(STATUS "ONNX Runtime include: ${ONNXRUNTIME_INCLUDE_DIR}")
 message(STATUS "ONNX Runtime lib: ${ONNXRUNTIME_LIB}")
+if(ENABLE_GPU)
+  message(STATUS "ONNX Runtime CUDA provider: ${ONNXRUNTIME_CUDA_PROVIDER_LIB}")
+endif()
 
 # =============================================================================
 # YOLOs-CPP Library - Download at Configuration Time
@@ -335,4 +378,7 @@ message(STATUS "  ONNX Runtime:  ${ONNXRUNTIME_LIB}")
 message(STATUS "  ONNX Include:  ${ONNXRUNTIME_INCLUDE_DIR}")
 message(STATUS "  YOLOs-CPP:     ${YOLOS_CPP_DIR}")
 message(STATUS "  GPU Support:   ${ENABLE_GPU}")
+if(ENABLE_GPU)
+  message(STATUS "  CUDA Provider: ${ONNXRUNTIME_CUDA_PROVIDER_LIB}")
+endif()
 message(STATUS "")
