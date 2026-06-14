@@ -644,6 +644,366 @@ Its ROS launch supervisor then creates and activates a fresh detector process.
 Repeated CUDA failures can indicate GPU overload, high temperature, driver
 problems, or an operating-system GPU watchdog.
 
+
+### Repair NVIDIA Drivers, CUDA Libraries, or Missing GPU Libraries
+
+Use this section only when the checks above report a driver error, Docker cannot
+access the GPU, or `ldd` reports a missing library.
+
+Important:
+
+- For the recommended Docker setup, the host computer needs the NVIDIA driver
+  and NVIDIA Container Toolkit.
+- The project Docker image provides CUDA 12.6 runtime libraries, cuDNN 9, and
+  ONNX Runtime GPU 1.20.1.
+- Do not install a complete CUDA toolkit on the host just to run this Docker
+  project.
+- Do not manually delete `.so` library files. Repair or reinstall their package.
+- The commands below are for Ubuntu. Driver removal can temporarily disable the
+  desktop display, so save your work before starting.
+
+#### Find Which Layer Is Broken
+
+Run these checks in order.
+
+1. Check the driver on the host:
+
+```bash
+nvidia-smi
+```
+
+2. Check whether Docker can use the host GPU:
+
+```bash
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+```
+
+3. Check the CUDA libraries inside the project container:
+
+```bash
+docker exec ros2_yolos_gpu_container bash -lc \
+  "ldd /ros2_ws/onnxruntime/lib/libonnxruntime_providers_cuda.so | grep 'not found' || true"
+```
+
+Use the result to choose the correct repair:
+
+| Result | Broken layer | Repair |
+|---|---|---|
+| Host `nvidia-smi` fails | NVIDIA host driver | Repair or reinstall the driver |
+| Host works, but the Docker GPU test fails | NVIDIA Container Toolkit | Reinstall and configure the toolkit |
+| Docker GPU test works, but project `ldd` shows `not found` | Project image CUDA libraries | Rebuild or repair the project container |
+| Every check passes, but CUDA errors continue | Runtime load, temperature, driver stability, or GPU watchdog | Check GPU usage, temperature, and logs |
+
+Useful host diagnostics:
+
+```bash
+hostnamectl
+lspci | grep -i nvidia
+lsmod | grep nvidia
+cat /proc/driver/nvidia/version
+apt-mark showmanual | grep -E 'nvidia|cuda'
+sudo dmesg | grep -Ei 'nvrm|nvidia|xid'
+```
+
+#### Repair the NVIDIA Host Driver
+
+First, try a reboot. This often fixes:
+
+```text
+Failed to initialize NVML: Driver/library version mismatch
+```
+
+```bash
+sudo reboot
+```
+
+If `nvidia-smi` still fails after reboot, update the package information,
+install the current kernel headers, and let Ubuntu select the recommended
+compute driver:
+
+```bash
+sudo apt update
+sudo apt install --reinstall -y linux-headers-$(uname -r)
+sudo ubuntu-drivers list --gpgpu
+sudo ubuntu-drivers install --gpgpu
+sudo reboot
+```
+
+For a normal desktop workstation, use this instead of the `--gpgpu` install
+command:
+
+```bash
+sudo ubuntu-drivers install
+```
+
+After rebooting:
+
+```bash
+nvidia-smi
+```
+
+The driver shown by `nvidia-smi` must support CUDA 12.6 or newer. The
+`ubuntu-drivers` command is preferred because it selects a driver supported by
+the installed GPU and Ubuntu version.
+
+#### Completely Remove and Reinstall a Broken NVIDIA Driver
+
+Only use this when the normal driver repair did not work.
+
+First, display the installed packages and available driver branches:
+
+```bash
+apt-mark showmanual | grep nvidia
+sudo ubuntu-drivers list --gpgpu
+```
+
+Set `DRIVER_BRANCH` to an installed broken branch. The following uses `570` only
+as an example:
+
+```bash
+export DRIVER_BRANCH=570
+sudo apt --purge remove "*nvidia*${DRIVER_BRANCH}*"
+sudo apt autoremove --purge -y
+sudo apt update
+sudo ubuntu-drivers install --gpgpu
+sudo reboot
+```
+
+Use `sudo ubuntu-drivers install` instead of `--gpgpu` for a normal desktop
+driver. If multiple old driver branches are installed, remove each old branch
+one at a time.
+
+After rebooting, verify:
+
+```bash
+nvidia-smi
+cat /proc/driver/nvidia/version
+lsmod | grep nvidia
+```
+
+If Secure Boot is enabled, use Ubuntu's signed recommended driver and complete
+any MOK key enrollment screen shown during reboot:
+
+```bash
+mokutil --sb-state
+```
+
+If `nvidia-smi` says `No devices were found`, check whether the conflicting
+`nouveau` driver is loaded:
+
+```bash
+lsmod | grep nouveau
+```
+
+Only if that command prints a `nouveau` module, disable it and reboot:
+
+```bash
+echo "blacklist nouveau" | sudo tee /etc/modprobe.d/disable-nouveau.conf
+echo "options nouveau modeset=0" | sudo tee -a /etc/modprobe.d/disable-nouveau.conf
+sudo update-initramfs -u
+sudo reboot
+```
+
+#### Reinstall the NVIDIA Container Toolkit
+
+Use this when host `nvidia-smi` works but this command fails:
+
+```bash
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+```
+
+Install the repository prerequisites and configure NVIDIA's production
+repository:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg2
+
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+  sudo gpg --dearmor --yes \
+  -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+curl -s -L \
+  https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+```
+
+Reinstall and configure the toolkit:
+
+```bash
+sudo apt-get update
+sudo apt-get install --reinstall -y \
+  nvidia-container-toolkit \
+  nvidia-container-toolkit-base \
+  libnvidia-container-tools \
+  libnvidia-container1
+
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Verify Docker GPU access before restarting this project:
+
+```bash
+docker run --rm --gpus all ubuntu:24.04 nvidia-smi
+docker start ros2_yolos_gpu_container
+docker exec ros2_yolos_gpu_container nvidia-smi
+```
+
+#### Find and Repair Missing CUDA Libraries Inside the Project Container
+
+List every missing ONNX Runtime GPU dependency:
+
+```bash
+docker exec ros2_yolos_gpu_container bash -lc \
+  "ldd /ros2_ws/onnxruntime/lib/libonnxruntime_providers_cuda.so | grep 'not found' || true"
+```
+
+Common missing files and the packages that provide them:
+
+| Missing library example | Required package in this project |
+|---|---|
+| `libcudart.so.12` | `cuda-cudart-12-6` |
+| `libnvrtc.so.12` | `cuda-nvrtc-12-6` |
+| `libcublas.so.12` or `libcublasLt.so.12` | `libcublas-12-6` |
+| `libcufft.so.11` | `libcufft-12-6` |
+| `libcurand.so.10` | `libcurand-12-6` |
+| `libcudnn.so.9` | `libcudnn9-cuda-12` |
+| `libonnxruntime_providers_cuda.so` | ONNX Runtime GPU 1.20.1 |
+
+The safest permanent repair is to rebuild the image. The Docker build verifies
+these libraries before compiling the project:
+
+```bash
+tmux kill-session -t auto_start 2>/dev/null || true
+docker rm -f ros2_yolos_gpu_container 2>/dev/null || true
+docker build --no-cache -t ros2_yolos_cpp:latest .
+
+docker run -d \
+  --name ros2_yolos_gpu_container \
+  --restart unless-stopped \
+  --gpus all \
+  --network host \
+  --ipc host \
+  --shm-size 1g \
+  ros2_yolos_cpp:latest
+```
+
+For a quick temporary repair of the current container:
+
+```bash
+docker exec -it ros2_yolos_gpu_container bash -lc '
+apt-get update
+apt-get install --reinstall -y --no-install-recommends \
+  cuda-cudart-12-6 \
+  cuda-nvrtc-12-6 \
+  libcublas-12-6 \
+  libcufft-12-6 \
+  libcurand-12-6 \
+  libcudnn9-cuda-12
+ldconfig
+ldd /ros2_ws/onnxruntime/lib/libonnxruntime_providers_cuda.so
+'
+```
+
+This temporary repair is lost when the container is deleted. Rebuild the image
+to make it permanent.
+
+#### Repair CUDA Libraries on the Host for a Source Build
+
+Skip this section when using Docker. It is only for users running the project
+directly on an Ubuntu 24.04 host.
+
+Add the CUDA repository used by this project and reinstall the exact runtime
+packages:
+
+```bash
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+rm cuda-keyring_1.1-1_all.deb
+
+sudo apt update
+sudo apt install --reinstall -y --no-install-recommends \
+  cuda-cudart-12-6 \
+  cuda-nvrtc-12-6 \
+  libcublas-12-6 \
+  libcufft-12-6 \
+  libcurand-12-6 \
+  libcudnn9-cuda-12
+sudo ldconfig
+```
+
+To completely remove and reinstall only those CUDA runtime packages:
+
+```bash
+sudo apt --purge remove -y \
+  cuda-cudart-12-6 \
+  cuda-nvrtc-12-6 \
+  libcublas-12-6 \
+  libcufft-12-6 \
+  libcurand-12-6 \
+  libcudnn9-cuda-12
+sudo apt autoremove --purge -y
+
+sudo apt update
+sudo apt install -y --no-install-recommends \
+  cuda-cudart-12-6 \
+  cuda-nvrtc-12-6 \
+  libcublas-12-6 \
+  libcufft-12-6 \
+  libcurand-12-6 \
+  libcudnn9-cuda-12
+sudo ldconfig
+```
+
+If APT reports broken or unfinished package installation, repair APT before
+reinstalling the libraries:
+
+```bash
+sudo dpkg --configure -a
+sudo apt --fix-broken install
+sudo apt update
+```
+
+If `libonnxruntime_providers_cuda.so` itself is missing during a host source
+build, download the same ONNX Runtime GPU release used by the Docker image:
+
+```bash
+export ONNXRUNTIME_VERSION=1.20.1
+export ONNXRUNTIME_DIR="$HOME/onnxruntime-gpu-$ONNXRUNTIME_VERSION"
+
+mv "$ONNXRUNTIME_DIR" "$ONNXRUNTIME_DIR.backup.$(date +%s)" 2>/dev/null || true
+mkdir -p "$ONNXRUNTIME_DIR"
+wget "https://github.com/microsoft/onnxruntime/releases/download/v$ONNXRUNTIME_VERSION/onnxruntime-linux-x64-gpu-$ONNXRUNTIME_VERSION.tgz" \
+  -O /tmp/onnxruntime-gpu.tgz
+tar -xzf /tmp/onnxruntime-gpu.tgz -C "$ONNXRUNTIME_DIR" --strip-components=1
+rm /tmp/onnxruntime-gpu.tgz
+
+find "$ONNXRUNTIME_DIR" -name 'libonnxruntime_providers_cuda.so'
+ldd "$ONNXRUNTIME_DIR/lib/libonnxruntime_providers_cuda.so" | \
+  grep 'not found' || true
+```
+
+The final `ldd` command should print nothing. Use this `ONNXRUNTIME_DIR` value
+when running `colcon build`.
+
+Verify the dynamic library cache and the ONNX Runtime GPU provider:
+
+```bash
+ldconfig -p | grep -E 'cudart|nvrtc|cublas|cufft|curand|cudnn'
+ldd "$ONNXRUNTIME_DIR/lib/libonnxruntime_providers_cuda.so" | \
+  grep 'not found' || true
+```
+
+The final `ldd` command should print nothing.
+
+Official references:
+
+- [Ubuntu NVIDIA driver installation](https://ubuntu.com/server/docs/how-to/graphics/install-nvidia-drivers/)
+- [NVIDIA Container Toolkit installation](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+- [NVIDIA CUDA installation guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html)
+
 ### Rebuild and Recreate Everything
 
 Use this when the image or container configuration is damaged:
