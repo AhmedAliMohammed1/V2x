@@ -139,8 +139,6 @@ docker run -d \
   --name ros2_yolos_gpu_container \
   --restart unless-stopped \
   --gpus all \
-  --network host \
-  --ipc host \
   --shm-size 1g \
   ros2_yolos_cpp:latest
 ```
@@ -148,10 +146,7 @@ docker run -d \
 Important:
 
 - `--gpus all` gives the container access to the NVIDIA GPU.
-- `--network host` allows ROS 2 discovery between the cameras, ROS bag, Docker
-  container, and host RViz.
-- `--ipc host` and `--shm-size 1g` provide enough shared-memory capacity for
-  image messages.
+
 
 If a container with the same name already exists, start it instead:
 
