@@ -21,6 +21,7 @@ SegmentorAdapter::SegmentorAdapter(SegmentorAdapter&&) noexcept = default;
 SegmentorAdapter& SegmentorAdapter::operator=(SegmentorAdapter&&) noexcept = default;
 
 bool SegmentorAdapter::initialize(const YolosConfig& config) {
+  shutdown();
   try {
     impl_->segmentor = std::make_unique<yolos::seg::YOLOSegDetector>(
       config.model_path,
@@ -34,6 +35,10 @@ bool SegmentorAdapter::initialize(const YolosConfig& config) {
               << impl_->class_names.size() << " classes" << std::endl;
     return true;
   } catch (const std::exception& e) {
+    shutdown();
+    if (isFatalGpuErrorMessage(e.what())) {
+      throw FatalInferenceError(e.what());
+    }
     std::cerr << "[SegmentorAdapter] Error: " << e.what() << std::endl;
     return false;
   }
@@ -46,6 +51,7 @@ bool SegmentorAdapter::isInitialized() const noexcept {
 void SegmentorAdapter::shutdown() {
   if (impl_) {
     impl_->segmentor.reset();
+    impl_->class_names.clear();
     impl_->initialized = false;
   }
 }

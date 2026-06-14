@@ -20,6 +20,7 @@ ClassifierAdapter::ClassifierAdapter(ClassifierAdapter&&) noexcept = default;
 ClassifierAdapter& ClassifierAdapter::operator=(ClassifierAdapter&&) noexcept = default;
 
 bool ClassifierAdapter::initialize(const YolosConfig& config) {
+  shutdown();
   try {
     impl_->classifier = std::make_unique<yolos::cls::YOLOClassifier>(
       config.model_path,
@@ -32,6 +33,10 @@ bool ClassifierAdapter::initialize(const YolosConfig& config) {
               << impl_->class_names.size() << " classes" << std::endl;
     return true;
   } catch (const std::exception& e) {
+    shutdown();
+    if (isFatalGpuErrorMessage(e.what())) {
+      throw FatalInferenceError(e.what());
+    }
     std::cerr << "[ClassifierAdapter] Error: " << e.what() << std::endl;
     return false;
   }
@@ -44,6 +49,7 @@ bool ClassifierAdapter::isInitialized() const noexcept {
 void ClassifierAdapter::shutdown() {
   if (impl_) {
     impl_->classifier.reset();
+    impl_->class_names.clear();
     impl_->initialized = false;
   }
 }

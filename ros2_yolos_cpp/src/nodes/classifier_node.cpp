@@ -8,16 +8,43 @@
 #else
 #include <cv_bridge/cv_bridge.h>
 #endif
+#include <chrono>
+#include <lifecycle_msgs/msg/state.hpp>
 
 namespace ros2_yolos_cpp {
 
-YolosClassifierNode::YolosClassifierNode(const rclcpp::NodeOptions& o) : rclcpp_lifecycle::LifecycleNode("yolos_classifier", o) { declareParameters(); }
+YolosClassifierNode::YolosClassifierNode(const rclcpp::NodeOptions& o)
+  : rclcpp_lifecycle::LifecycleNode("yolos_classifier", o)
+{
+  declareParameters();
+  autostart_ = get_parameter("autostart").as_bool();
+  if (autostart_) {
+    autostart_timer_ = create_wall_timer(
+      std::chrono::milliseconds(250), std::bind(&YolosClassifierNode::autostart, this));
+  }
+}
 
 void YolosClassifierNode::declareParameters() {
   declare_parameter("model_path", rclcpp::PARAMETER_STRING);
   declare_parameter("labels_path", rclcpp::PARAMETER_STRING);
   declare_parameter("use_gpu", false);
+  declare_parameter("autostart", false);
   declare_parameter("publish_debug_image", false);
+}
+
+void YolosClassifierNode::autostart() {
+  autostart_timer_->cancel();
+
+  auto state = configure();
+  if (state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+    RCLCPP_ERROR(get_logger(), "Autostart configuration failed; node remains unconfigured");
+    return;
+  }
+
+  state = activate();
+  if (state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    RCLCPP_ERROR(get_logger(), "Autostart activation failed; node remains inactive");
+  }
 }
 
 YolosConfig YolosClassifierNode::loadConfig() {
@@ -31,6 +58,10 @@ YolosConfig YolosClassifierNode::loadConfig() {
 
 YolosClassifierNode::CallbackReturn YolosClassifierNode::on_configure(const rclcpp_lifecycle::State&) {
   auto c = loadConfig();
+  if (c.model_path.empty() || c.labels_path.empty()) {
+    RCLCPP_ERROR(get_logger(), "model_path and labels_path are required");
+    return CallbackReturn::FAILURE;
+  }
   cls_ = createClassifierAdapter();
   if (!cls_->initialize(c)) return CallbackReturn::FAILURE;
   cb_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);

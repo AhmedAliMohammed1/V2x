@@ -25,6 +25,11 @@ def generate_launch_description():
         default_value='false',
         description='Enable GPU inference'
     )
+    autostart_arg = DeclareLaunchArgument(
+        'autostart',
+        default_value='true',
+        description='Automatically configure and activate the lifecycle node'
+    )
     conf_threshold_arg = DeclareLaunchArgument(
         'conf_threshold',
         default_value='0.4',
@@ -51,6 +56,7 @@ def generate_launch_description():
                     'model_path': LaunchConfiguration('model_path'),
                     'labels_path': LaunchConfiguration('labels_path'),
                     'use_gpu': LaunchConfiguration('use_gpu'),
+                    'autostart': LaunchConfiguration('autostart'),
                     'conf_threshold': LaunchConfiguration('conf_threshold'),
                     'nms_threshold': 0.45,
                     'publish_debug_image': True,
@@ -67,6 +73,7 @@ def generate_launch_description():
         model_path_arg,
         labels_path_arg,
         use_gpu_arg,
+        autostart_arg,
         conf_threshold_arg,
         image_topic_arg,
         container,

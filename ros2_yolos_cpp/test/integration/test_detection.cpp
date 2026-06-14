@@ -105,7 +105,10 @@ TEST_F(DetectorTest, NodeLifecycleConfiguration) {
   state = node->activate();
   EXPECT_EQ(state.id(), lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
   
-  // Test Cleanup
+  // Active lifecycle nodes must be deactivated before cleanup.
+  state = node->deactivate();
+  EXPECT_EQ(state.id(), lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE);
+
   state = node->cleanup();
   EXPECT_EQ(state.id(), lifecycle_msgs::msg::State::PRIMARY_STATE_UNCONFIGURED);
 

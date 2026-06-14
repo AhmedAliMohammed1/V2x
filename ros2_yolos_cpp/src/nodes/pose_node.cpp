@@ -8,18 +8,45 @@
 #else
 #include <cv_bridge/cv_bridge.h>
 #endif
+#include <chrono>
+#include <lifecycle_msgs/msg/state.hpp>
 
 namespace ros2_yolos_cpp {
 
-YolosPoseNode::YolosPoseNode(const rclcpp::NodeOptions& o) : rclcpp_lifecycle::LifecycleNode("yolos_pose", o) { declareParameters(); }
+YolosPoseNode::YolosPoseNode(const rclcpp::NodeOptions& o)
+  : rclcpp_lifecycle::LifecycleNode("yolos_pose", o)
+{
+  declareParameters();
+  autostart_ = get_parameter("autostart").as_bool();
+  if (autostart_) {
+    autostart_timer_ = create_wall_timer(
+      std::chrono::milliseconds(250), std::bind(&YolosPoseNode::autostart, this));
+  }
+}
 
 void YolosPoseNode::declareParameters() {
   declare_parameter("model_path", rclcpp::PARAMETER_STRING);
   declare_parameter("labels_path", "");
   declare_parameter("use_gpu", false);
+  declare_parameter("autostart", false);
   declare_parameter("conf_threshold", 0.4);
   declare_parameter("nms_threshold", 0.5);
   declare_parameter("publish_debug_image", false);
+}
+
+void YolosPoseNode::autostart() {
+  autostart_timer_->cancel();
+
+  auto state = configure();
+  if (state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE) {
+    RCLCPP_ERROR(get_logger(), "Autostart configuration failed; node remains unconfigured");
+    return;
+  }
+
+  state = activate();
+  if (state.id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+    RCLCPP_ERROR(get_logger(), "Autostart activation failed; node remains inactive");
+  }
 }
 
 YolosConfig YolosPoseNode::loadConfig() {
@@ -37,6 +64,10 @@ YolosConfig YolosPoseNode::loadConfig() {
 YolosPoseNode::CallbackReturn YolosPoseNode::on_configure(const rclcpp_lifecycle::State&) {
   auto c = loadConfig();
   if (c.model_path.empty()) return CallbackReturn::FAILURE;
+  if (!isValidProbability(c.conf_threshold) || !isValidProbability(c.nms_threshold)) {
+    RCLCPP_ERROR(get_logger(), "conf_threshold and nms_threshold must be between 0 and 1");
+    return CallbackReturn::FAILURE;
+  }
   pose_ = createPoseAdapter();
   if (!pose_->initialize(c)) return CallbackReturn::FAILURE;
   cb_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);

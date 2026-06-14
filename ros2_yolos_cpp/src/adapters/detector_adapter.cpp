@@ -46,6 +46,7 @@ DetectorAdapter::DetectorAdapter(DetectorAdapter&&) noexcept = default;
 DetectorAdapter& DetectorAdapter::operator=(DetectorAdapter&&) noexcept = default;
 
 bool DetectorAdapter::initialize(const YolosConfig& config) {
+  shutdown();
   try {
     impl_->allowed_classes = loadAllowedClassesFile(config.allowed_classes_path);
     auto version = Impl::parseVersion(config.yolo_version);
@@ -99,6 +100,7 @@ bool DetectorAdapter::isInitialized() const noexcept {
 void DetectorAdapter::shutdown() {
   if (impl_) {
     impl_->detector.reset();
+    impl_->class_names.clear();
     impl_->allowed_classes.clear();
     impl_->initialized = false;
   }

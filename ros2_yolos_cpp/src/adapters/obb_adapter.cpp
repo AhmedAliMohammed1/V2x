@@ -20,6 +20,7 @@ OBBAdapter::OBBAdapter(OBBAdapter&&) noexcept = default;
 OBBAdapter& OBBAdapter::operator=(OBBAdapter&&) noexcept = default;
 
 bool OBBAdapter::initialize(const YolosConfig& config) {
+  shutdown();
   try {
     impl_->detector = std::make_unique<yolos::obb::YOLOOBBDetector>(
       config.model_path,
@@ -32,6 +33,10 @@ bool OBBAdapter::initialize(const YolosConfig& config) {
               << impl_->class_names.size() << " classes" << std::endl;
     return true;
   } catch (const std::exception& e) {
+    shutdown();
+    if (isFatalGpuErrorMessage(e.what())) {
+      throw FatalInferenceError(e.what());
+    }
     std::cerr << "[OBBAdapter] Error: " << e.what() << std::endl;
     return false;
   }
@@ -44,6 +49,7 @@ bool OBBAdapter::isInitialized() const noexcept {
 void OBBAdapter::shutdown() {
   if (impl_) {
     impl_->detector.reset();
+    impl_->class_names.clear();
     impl_->initialized = false;
   }
 }

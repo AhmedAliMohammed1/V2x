@@ -97,6 +97,12 @@ YolosDetectorNode::CallbackReturn YolosDetectorNode::on_configure(const rclcpp_l
       RCLCPP_ERROR(get_logger(), "model_path and labels_path are required");
       return CallbackReturn::FAILURE;
     }
+    if (!isValidProbability(config.conf_threshold) ||
+      !isValidProbability(config.nms_threshold))
+    {
+      RCLCPP_ERROR(get_logger(), "conf_threshold and nms_threshold must be between 0 and 1");
+      return CallbackReturn::FAILURE;
+    }
     detector_ = createDetectorAdapter();
     if (!detector_->initialize(config)) {
       RCLCPP_ERROR(get_logger(), "Failed to initialize detector");

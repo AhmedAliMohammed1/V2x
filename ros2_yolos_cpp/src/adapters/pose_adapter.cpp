@@ -20,6 +20,7 @@ PoseAdapter::PoseAdapter(PoseAdapter&&) noexcept = default;
 PoseAdapter& PoseAdapter::operator=(PoseAdapter&&) noexcept = default;
 
 bool PoseAdapter::initialize(const YolosConfig& config) {
+  shutdown();
   try {
     impl_->detector = std::make_unique<yolos::pose::YOLOPoseDetector>(
       config.model_path,
@@ -31,6 +32,10 @@ bool PoseAdapter::initialize(const YolosConfig& config) {
     std::cout << "[PoseAdapter] Initialized" << std::endl;
     return true;
   } catch (const std::exception& e) {
+    shutdown();
+    if (isFatalGpuErrorMessage(e.what())) {
+      throw FatalInferenceError(e.what());
+    }
     std::cerr << "[PoseAdapter] Error: " << e.what() << std::endl;
     return false;
   }
@@ -43,6 +48,7 @@ bool PoseAdapter::isInitialized() const noexcept {
 void PoseAdapter::shutdown() {
   if (impl_) {
     impl_->detector.reset();
+    impl_->class_names.clear();
     impl_->initialized = false;
   }
 }

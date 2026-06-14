@@ -24,6 +24,11 @@ def generate_launch_description():
         default_value='false',
         description='Enable GPU inference'
     )
+    autostart_arg = DeclareLaunchArgument(
+        'autostart',
+        default_value='true',
+        description='Automatically configure and activate the lifecycle node'
+    )
     image_topic_arg = DeclareLaunchArgument(
         'image_topic',
         default_value='/camera/image_raw',
@@ -44,6 +49,7 @@ def generate_launch_description():
                     'model_path': LaunchConfiguration('model_path'),
                     'labels_path': LaunchConfiguration('labels_path'),
                     'use_gpu': LaunchConfiguration('use_gpu'),
+                    'autostart': LaunchConfiguration('autostart'),
                     'publish_debug_image': True,
                 }],
                 remappings=[
@@ -58,6 +64,7 @@ def generate_launch_description():
         model_path_arg,
         labels_path_arg,
         use_gpu_arg,
+        autostart_arg,
         image_topic_arg,
         container,
     ])

@@ -11,6 +11,7 @@
 // When YOLOs-CPP v2 releases, only adapter implementations need updating.
 // =============================================================================
 
+#include <cmath>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -31,6 +32,10 @@ public:
 };
 
 /// @brief Return true when an ONNX Runtime error indicates a poisoned CUDA context.
+inline bool isValidProbability(float value) noexcept {
+  return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+}
+
 inline bool isFatalGpuErrorMessage(std::string_view message) noexcept {
   constexpr std::string_view fatal_markers[] = {
     "CUDA failure 700",

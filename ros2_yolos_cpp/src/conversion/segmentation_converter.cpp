@@ -9,6 +9,8 @@
 #include <cv_bridge/cv_bridge.h>
 #endif
 
+#include <stdexcept>
+
 namespace ros2_yolos_cpp {
 namespace conversion {
 
@@ -63,20 +65,22 @@ sensor_msgs::msg::Image toCombinedMaskImage(
   for (const auto& seg : segmentations) {
     if (!seg.mask.empty()) {
       cv::Mat seg_mask;
+      if (seg.class_id < 0 || seg.class_id >= 255) {
+        throw std::invalid_argument("Segmentation class_id must be between 0 and 254");
+      }
+      if (seg.mask.channels() != 1) {
+        throw std::invalid_argument("Segmentation masks must have exactly one channel");
+      }
+
       if (seg.mask.size() != combined.size()) {
-        cv::resize(seg.mask, seg_mask, combined.size());
+        cv::resize(seg.mask, seg_mask, combined.size(), 0.0, 0.0, cv::INTER_NEAREST);
       } else {
         seg_mask = seg.mask;
       }
 
-      // Label each pixel with class_id + 1 (0 = background)
-      for (int y = 0; y < combined.rows; ++y) {
-        for (int x = 0; x < combined.cols; ++x) {
-          if (seg_mask.at<uchar>(y, x) > 0) {
-            combined.at<uchar>(y, x) = static_cast<uchar>(seg.class_id + 1);
-          }
-        }
-      }
+      cv::Mat binary_mask;
+      cv::compare(seg_mask, 0, binary_mask, cv::CMP_GT);
+      combined.setTo(static_cast<uchar>(seg.class_id + 1), binary_mask);
     }
   }
 

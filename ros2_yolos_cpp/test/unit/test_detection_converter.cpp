@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 #include "ros2_yolos_cpp/conversion/detection_converter.hpp"
 
 namespace ros2_yolos_cpp::conversion {
@@ -91,6 +93,15 @@ TEST_F(DetectionConverterTest, CoordinateIntegrity) {
   // Center should be at (50, 50)
   EXPECT_DOUBLE_EQ(msg.bbox.center.position.x, 50.0);
   EXPECT_DOUBLE_EQ(msg.bbox.center.position.y, 50.0);
+}
+
+TEST(ParameterValidationTest, AcceptsOnlyFiniteProbabilities) {
+  EXPECT_TRUE(ros2_yolos_cpp::isValidProbability(0.0F));
+  EXPECT_TRUE(ros2_yolos_cpp::isValidProbability(1.0F));
+  EXPECT_FALSE(ros2_yolos_cpp::isValidProbability(-0.01F));
+  EXPECT_FALSE(ros2_yolos_cpp::isValidProbability(1.01F));
+  EXPECT_FALSE(ros2_yolos_cpp::isValidProbability(
+    std::numeric_limits<float>::quiet_NaN()));
 }
 
 TEST(FatalGpuErrorTest, RecognizesPoisonedCudaContextErrors) {

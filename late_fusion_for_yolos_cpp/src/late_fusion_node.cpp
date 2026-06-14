@@ -4,10 +4,13 @@
 #include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 
+#include <cstdint>
 #include <map>
-#include <vector>
 #include <string>
-#include <chrono>
+#include <utility>
+#include <vector>
+
+#include "late_fusion_for_yolos_cpp/fusion_config.hpp"
 
 class FusionNode : public rclcpp::Node
 {
@@ -27,25 +30,36 @@ public:
     // Timeout in seconds: if no msg for 0.5s, show black screen
     declare_parameter("timeout_threshold", 0.5); 
 
-    rate_ = get_parameter("rate").as_double();
-    det_topics_ = get_parameter("det_inputs").as_string_array();
-    img_topics_ = get_parameter("img_inputs").as_string_array();
-    output_det_topic_ = get_parameter("output_det").as_string();
-    output_img_topic_ = get_parameter("output_img").as_string();
-    grid_rows_ = static_cast<size_t>(get_parameter("grid_rows").as_int());
-    grid_cols_ = static_cast<size_t>(get_parameter("grid_cols").as_int());
-    tile_width_ = static_cast<size_t>(get_parameter("tile_width").as_int());
-    tile_height_ = static_cast<size_t>(get_parameter("tile_height").as_int());
-    timeout_threshold_ = get_parameter("timeout_threshold").as_double();
+    late_fusion_for_yolos_cpp::FusionConfig config;
+    config.rate = get_parameter("rate").as_double();
+    config.det_topics = get_parameter("det_inputs").as_string_array();
+    config.img_topics = get_parameter("img_inputs").as_string_array();
+    config.output_det_topic = get_parameter("output_det").as_string();
+    config.output_img_topic = get_parameter("output_img").as_string();
+    config.grid_rows = get_parameter("grid_rows").as_int();
+    config.grid_cols = get_parameter("grid_cols").as_int();
+    config.tile_width = get_parameter("tile_width").as_int();
+    config.tile_height = get_parameter("tile_height").as_int();
+    config.timeout_threshold = get_parameter("timeout_threshold").as_double();
+    late_fusion_for_yolos_cpp::validateFusionConfig(config);
+
+    rate_ = config.rate;
+    det_topics_ = std::move(config.det_topics);
+    img_topics_ = std::move(config.img_topics);
+    output_det_topic_ = std::move(config.output_det_topic);
+    output_img_topic_ = std::move(config.output_img_topic);
+    grid_rows_ = static_cast<size_t>(config.grid_rows);
+    grid_cols_ = static_cast<size_t>(config.grid_cols);
+    tile_width_ = static_cast<int>(config.tile_width);
+    tile_height_ = static_cast<int>(config.tile_height);
+    timeout_threshold_ = config.timeout_threshold;
     grid_cells_ = grid_rows_ * grid_cols_;
 
-    if (det_topics_.empty() || img_topics_.size() == 0)
-      throw std::runtime_error("Detection and image topics required");
-
     // ---------------- Subscriptions ----------------
+    const auto latest_qos = rclcpp::QoS(rclcpp::KeepLast(1));
     for (const auto & topic : det_topics_) {
       det_subs_.push_back(create_subscription<vision_msgs::msg::Detection2DArray>(
-          topic, 10, [this, topic](vision_msgs::msg::Detection2DArray::SharedPtr msg) {
+          topic, latest_qos, [this, topic](vision_msgs::msg::Detection2DArray::SharedPtr msg) {
             latest_detections_[topic] = msg;
             last_det_time_[topic] = this->now(); // Record arrival time
           }));
@@ -53,7 +67,7 @@ public:
 
     for (const auto & topic : img_topics_) {
       img_subs_.push_back(create_subscription<sensor_msgs::msg::Image>(
-          topic, 10, [this, topic](sensor_msgs::msg::Image::SharedPtr msg) {
+          topic, latest_qos, [this, topic](sensor_msgs::msg::Image::SharedPtr msg) {
             latest_images_[topic] = msg;
             last_img_time_[topic] = this->now(); // Record arrival time
           }));
@@ -61,11 +75,11 @@ public:
 
     // ---------------- Publishers ----------------
     det_pub_ = create_publisher<vision_msgs::msg::Detection2DArray>(output_det_topic_, 10);
-    img_pub_ = create_publisher<sensor_msgs::msg::Image>(output_img_topic_, 10);
+    img_pub_ = create_publisher<sensor_msgs::msg::Image>(output_img_topic_, 1);
 
     // ---------------- Timer ----------------
     timer_ = create_wall_timer(
-        std::chrono::milliseconds(static_cast<int>(1000.0 / rate_)),
+        late_fusion_for_yolos_cpp::fusionPeriod(rate_),
         std::bind(&FusionNode::publishFusion, this));
   }
 
@@ -110,9 +124,11 @@ private:
           
           if (age < timeout_threshold_) {
             try {
-              cv::Mat img = cv_bridge::toCvCopy(latest_images_[topic], "bgr8")->image;
+              const auto cv_image = cv_bridge::toCvShare(latest_images_[topic], "bgr8");
               cv::Mat resized;
-              cv::resize(img, resized, cv::Size(tile_width_, tile_height_));
+              cv::resize(
+                cv_image->image, resized, cv::Size(tile_width_, tile_height_), 0.0, 0.0,
+                cv::INTER_AREA);
               tiles.push_back(resized);
               frame_valid = true;
             } catch (const std::exception &e) {
@@ -124,7 +140,7 @@ private:
 
       // If source is inactive or no topic assigned to this grid cell, show black
       if (!frame_valid) {
-        tiles.push_back(cv::Mat::zeros(tile_height_, tile_width_, CV_8UC3));
+        tiles.push_back(cv::Mat::zeros(cv::Size(tile_width_, tile_height_), CV_8UC3));
       }
     }
 
@@ -151,7 +167,8 @@ private:
 
   // Members
   double rate_, timeout_threshold_;
-  size_t grid_rows_, grid_cols_, tile_width_, tile_height_, grid_cells_;
+  size_t grid_rows_, grid_cols_, grid_cells_;
+  int tile_width_, tile_height_;
   std::vector<std::string> det_topics_, img_topics_;
   std::string output_det_topic_, output_img_topic_;
 
@@ -171,7 +188,13 @@ private:
 
 int main(int argc, char ** argv) {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<FusionNode>());
+  try {
+    rclcpp::spin(std::make_shared<FusionNode>());
+  } catch (const std::exception & error) {
+    RCLCPP_FATAL(rclcpp::get_logger("late_fusion_node"), "Startup failed: %s", error.what());
+    rclcpp::shutdown();
+    return 1;
+  }
   rclcpp::shutdown();
   return 0;
 }

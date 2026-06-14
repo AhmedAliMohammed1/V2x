@@ -343,6 +343,12 @@ if(BUILD_TESTING)
   target_link_libraries(test_detection_converter ${PROJECT_NAME}_components)
   ament_target_dependencies(test_detection_converter rclcpp vision_msgs)
 
+  ament_add_gtest(test_segmentation_converter
+    test/unit/test_segmentation_converter.cpp
+  )
+  target_link_libraries(test_segmentation_converter ${PROJECT_NAME}_components)
+  ament_target_dependencies(test_segmentation_converter sensor_msgs std_msgs)
+
   macro(add_integration_test target_name source_file)
     ament_add_gtest(${target_name} ${source_file})
     target_link_libraries(${target_name}

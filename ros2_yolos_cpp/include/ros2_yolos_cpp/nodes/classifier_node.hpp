@@ -23,6 +23,7 @@ public:
   CallbackReturn on_cleanup(const rclcpp_lifecycle::State&) override;
   CallbackReturn on_shutdown(const rclcpp_lifecycle::State& s) override { return on_cleanup(s); }
 private:
+  void autostart();
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr&);
   void declareParameters();
   YolosConfig loadConfig();
@@ -31,7 +32,8 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr sub_;
   rclcpp_lifecycle::LifecyclePublisher<vision_msgs::msg::Classification>::SharedPtr pub_;
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr dbg_;
-  bool debug_;
+  rclcpp::TimerBase::SharedPtr autostart_timer_;
+  bool debug_, autostart_;
 };
 
 }  // namespace ros2_yolos_cpp
