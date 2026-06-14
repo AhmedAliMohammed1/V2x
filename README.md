@@ -181,7 +181,7 @@ sudo apt update
 sudo apt install -y tmux ruby-full
 sudo gem install tmuxinator
 mkdir -p ~/.tmuxinator
-cp "$PWD/auto_start.yml" ~/.tmuxinator/auto_start.yml
+cp "$PWD/auto_start.yml" ~/.config/tmuxinator/auto_start.yml
 ```
 
 You only need to copy the profile again after changing `auto_start.yml`.
