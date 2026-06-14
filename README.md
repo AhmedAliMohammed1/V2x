@@ -389,8 +389,6 @@ docker run -d \
   --name ros2_yolos_gpu_container \
   --restart unless-stopped \
   --gpus all \
-  --network host \
-  --ipc host \
   --shm-size 1g \
   ros2_yolos_cpp:latest
 
@@ -884,8 +882,6 @@ docker run -d \
   --name ros2_yolos_gpu_container \
   --restart unless-stopped \
   --gpus all \
-  --network host \
-  --ipc host \
   --shm-size 1g \
   ros2_yolos_cpp:latest
 ```
@@ -1017,8 +1013,6 @@ docker run -d \
   --name ros2_yolos_gpu_container \
   --restart unless-stopped \
   --gpus all \
-  --network host \
-  --ipc host \
   --shm-size 1g \
   ros2_yolos_cpp:latest
 ```
