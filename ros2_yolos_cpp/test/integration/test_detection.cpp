@@ -57,6 +57,7 @@ TEST_F(DetectorTest, AdapterInitialization) {
   YolosConfig config;
   config.model_path = model_path_;
   config.labels_path = labels_path_;
+  config.allowed_classes_path = labels_path_;
   config.use_gpu = false;
   
   ASSERT_TRUE(adapter->initialize(config));
@@ -70,6 +71,7 @@ TEST_F(DetectorTest, AdapterDetection) {
   YolosConfig config;
   config.model_path = model_path_;
   config.labels_path = labels_path_;
+  config.allowed_classes_path = labels_path_;
   
   ASSERT_TRUE(adapter->initialize(config));
   

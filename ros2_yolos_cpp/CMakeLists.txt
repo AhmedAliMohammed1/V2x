@@ -26,6 +26,7 @@ option(ENABLE_GPU "Require and validate the ONNX Runtime CUDA provider" OFF)
 # Find ROS 2 Dependencies
 # =============================================================================
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(rclcpp_components REQUIRED)
@@ -217,6 +218,7 @@ include_directories(
 # =============================================================================
 add_library(${PROJECT_NAME}_components SHARED
   src/adapters/detector_adapter.cpp
+  src/filters/allowed_classes.cpp
   src/adapters/segmentor_adapter.cpp
   src/adapters/pose_adapter.cpp
   src/adapters/obb_adapter.cpp
@@ -245,6 +247,7 @@ target_link_libraries(${PROJECT_NAME}_components
 )
 
 ament_target_dependencies(${PROJECT_NAME}_components
+  ament_index_cpp
   rclcpp
   rclcpp_lifecycle
   rclcpp_components
@@ -329,6 +332,11 @@ if(BUILD_TESTING)
 
   find_package(ament_cmake_gtest REQUIRED)
 
+  ament_add_gtest(test_allowed_classes
+    test/unit/test_allowed_classes.cpp
+  )
+  target_link_libraries(test_allowed_classes ${PROJECT_NAME}_components)
+
   ament_add_gtest(test_detection_converter
     test/unit/test_detection_converter.cpp
   )
@@ -357,6 +365,7 @@ endif()
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_components)
 ament_export_dependencies(
+  ament_index_cpp
   rclcpp
   rclcpp_lifecycle
   rclcpp_components

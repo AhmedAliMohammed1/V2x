@@ -3,6 +3,7 @@
 
 #include "ros2_yolos_cpp/nodes/detector_node.hpp"
 #include "ros2_yolos_cpp/conversion/detection_converter.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #if __has_include(<cv_bridge/cv_bridge.hpp>)
 #include <cv_bridge/cv_bridge.hpp>
 #else
@@ -27,8 +28,12 @@ YolosDetectorNode::YolosDetectorNode(const rclcpp::NodeOptions& options)
 }
 
 void YolosDetectorNode::declareParameters() {
+  const auto default_allowed_classes_path =
+    ament_index_cpp::get_package_share_directory("ros2_yolos_cpp") +
+    "/config/allowed_classes.txt";
   declare_parameter("model_path", rclcpp::PARAMETER_STRING);
   declare_parameter("labels_path", rclcpp::PARAMETER_STRING);
+  declare_parameter("allowed_classes_path", default_allowed_classes_path);
   declare_parameter("autostart", false);
   declare_parameter("use_gpu", false);
   declare_parameter("conf_threshold", 0.4);
@@ -65,6 +70,7 @@ YolosConfig YolosDetectorNode::loadConfig() {
   YolosConfig config;
   config.model_path = get_parameter("model_path").as_string();
   config.labels_path = get_parameter("labels_path").as_string();
+  config.allowed_classes_path = get_parameter("allowed_classes_path").as_string();
   config.use_gpu = get_parameter("use_gpu").as_bool();
   config.conf_threshold = static_cast<float>(get_parameter("conf_threshold").as_double());
   config.nms_threshold = static_cast<float>(get_parameter("nms_threshold").as_double());
@@ -72,6 +78,7 @@ YolosConfig YolosDetectorNode::loadConfig() {
   
   model_path_ = config.model_path;
   labels_path_ = config.labels_path;
+  allowed_classes_path_ = config.allowed_classes_path;
   use_gpu_ = config.use_gpu;
   conf_threshold_ = config.conf_threshold;
   nms_threshold_ = config.nms_threshold;

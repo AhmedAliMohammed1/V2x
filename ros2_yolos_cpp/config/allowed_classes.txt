@@ -1,0 +1,7 @@
+# One exact YOLO class name per line.
+# Blank lines and lines beginning with # are ignored.
+car
+truck
+bus
+person
+traffic light

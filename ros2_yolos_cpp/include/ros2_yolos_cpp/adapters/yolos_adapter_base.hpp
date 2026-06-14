@@ -58,6 +58,7 @@ inline bool isFatalGpuErrorMessage(std::string_view message) noexcept {
 struct YolosConfig {
   std::string model_path;
   std::string labels_path;
+  std::string allowed_classes_path;
   bool use_gpu{false};
   float conf_threshold{0.4f};
   float nms_threshold{0.45f};

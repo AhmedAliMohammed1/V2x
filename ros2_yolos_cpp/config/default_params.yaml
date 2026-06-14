@@ -6,6 +6,7 @@
     # YOLO Model Configuration
     model_path: ""              # Required: Path to ONNX model
     labels_path: ""             # Required: Path to class names file
+    # allowed_classes_path defaults to the installed config/allowed_classes.txt file
     autostart: false             # Launch files override this to true
     use_gpu: false              # Enable CUDA acceleration
     yolo_version: "auto"        # auto, v7, v8, v10, v11, v26, nas

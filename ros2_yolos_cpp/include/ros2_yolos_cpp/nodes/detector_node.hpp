@@ -47,7 +47,7 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<sensor_msgs::msg::Image>::SharedPtr debug_pub_;
   rclcpp_lifecycle::LifecyclePublisher<std_msgs::msg::Float64MultiArray>::SharedPtr timing_pub_;
 
-  std::string model_path_, labels_path_, yolo_version_;
+  std::string model_path_, labels_path_, allowed_classes_path_, yolo_version_;
   bool autostart_, use_gpu_, publish_debug_image_, publish_timing_;
   float conf_threshold_, nms_threshold_;
 };

@@ -1,6 +1,9 @@
 # Copyright 2024 YOLOs-CPP Team
 # SPDX-License-Identifier: AGPL-3.0
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -9,6 +12,9 @@ from launch_ros.actions import LifecycleNode
 
 def generate_launch_description():
     """Launch a standalone YOLO detector lifecycle node."""
+    default_allowed_classes_path = os.path.join(
+        get_package_share_directory('ros2_yolos_cpp'), 'config', 'allowed_classes.txt'
+    )
     model_path_arg = DeclareLaunchArgument(
         'model_path',
         description='Path to ONNX model file'
@@ -16,6 +22,11 @@ def generate_launch_description():
     labels_path_arg = DeclareLaunchArgument(
         'labels_path',
         description='Path to class names file'
+    )
+    allowed_classes_path_arg = DeclareLaunchArgument(
+        'allowed_classes_path',
+        default_value=default_allowed_classes_path,
+        description='Path to the detection class allowlist file'
     )
     use_gpu_arg = DeclareLaunchArgument(
         'use_gpu',
@@ -63,6 +74,7 @@ def generate_launch_description():
         parameters=[{
             'model_path': LaunchConfiguration('model_path'),
             'labels_path': LaunchConfiguration('labels_path'),
+            'allowed_classes_path': LaunchConfiguration('allowed_classes_path'),
             'autostart': LaunchConfiguration('autostart'),
             'use_gpu': LaunchConfiguration('use_gpu'),
             'conf_threshold': LaunchConfiguration('conf_threshold'),
@@ -82,6 +94,7 @@ def generate_launch_description():
     return LaunchDescription([
         model_path_arg,
         labels_path_arg,
+        allowed_classes_path_arg,
         use_gpu_arg,
         autostart_arg,
         publish_debug_image_arg,
